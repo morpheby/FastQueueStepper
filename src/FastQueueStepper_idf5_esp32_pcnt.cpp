@@ -1,3 +1,4 @@
+#include "FastQueueStepper.h"
 #include "StepperISR.h"
 #if defined(SUPPORT_ESP32_PULSE_COUNTER) && (ESP_IDF_VERSION_MAJOR == 5)
 
@@ -18,7 +19,7 @@ struct pcnt_chan_t {
   // remainder of struct not needed
 };
 
-bool FastAccelStepper::attachToPulseCounter() {
+bool FastQueueStepper::enablePulseCounter() {
   pcnt_unit_config_t config = {.low_limit = INT16_MIN,
                                .high_limit = INT16_MAX,
                                .intr_priority = 0,
@@ -93,10 +94,7 @@ bool FastAccelStepper::attachToPulseCounter() {
   }
 
   uint8_t step_pin = getStepPin();
-#ifdef TRACE
-  printf("pins = %d/%d unit_id=%d channel_id=%d\n", step_pin, dir_pin, unit_id,
-         channel_id);
-#endif
+  
   int signal = pcnt_periph_signals.groups[0]
                    .units[unit_id]
                    .channels[channel_id]
@@ -119,16 +117,12 @@ bool FastAccelStepper::attachToPulseCounter() {
   return true;
 }
 
-void FastAccelStepper::clearPulseCounter() {
-  if (pulseCounterAttached()) {
-    pcnt_unit_clear_count(_attached_pulse_unit);
-  }
+void FastQueueStepper::clearPulseCounter() {
+  pcnt_unit_clear_count(_attached_pulse_unit);
 }
-int32_t FastAccelStepper::readPulseCounter() {
+int32_t FastQueueStepper::readPulseCounter() {
   int value = 0;
-  if (pulseCounterAttached()) {
-    pcnt_unit_get_count(_attached_pulse_unit, &value);
-  }
+  pcnt_unit_get_count(_attached_pulse_unit, &value);
   return value;
 }
 

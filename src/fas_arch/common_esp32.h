@@ -26,7 +26,8 @@
 // Esp32 queue definitions
 #define NUM_QUEUES (QUEUES_MCPWM_PCNT + QUEUES_RMT)
 #define MAX_STEPPER (NUM_QUEUES)
-#define QUEUE_LEN 32
+#define QUEUE_LEN 128
+#define RMT_TX_QUEUE_DEPTH 16
 
 // Esp32 timing definition
 #define TICKS_PER_S 16000000L
@@ -34,8 +35,6 @@
 #define MIN_DIR_DELAY_US (MIN_CMD_TICKS / (TICKS_PER_S / 1000000))
 #define MAX_DIR_DELAY_US (65535 / (TICKS_PER_S / 1000000))
 #define DELAY_MS_BASE 4
-
-#define SUPPORT_QUEUE_ENTRY_START_POS_U16
 
 // debug led timing
 #define DEBUG_LED_HALF_PERIOD 50

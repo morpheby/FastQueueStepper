@@ -18,7 +18,7 @@
 // - `ticks*steps` must be greater or equal to MIN_CMD_TICKS
 //
 // For example:
-// A command with ticks=TICKS_PER_S/1000, steps = 3, count_up = true means that:
+// A command with ticks=3*TICKS_PER_S/1000, steps = 3, count_up = true means that:
 // 1. The direction pin is set to HIGH.
 // 2. One step is generated.
 // 3. Exactly 1 ms after the first step, the second step is issued.
@@ -26,37 +26,23 @@
 // 5. The stepper waits for 1 ms.
 // 6. The next command is processed.
 struct stepper_command_s {
-  // Number of ticks between each step.
-  // There are `TICKS_PER_S` ticks per second. This may vary between different
-  // platforms.
-  uint16_t ticks;
+  // Number of ticks the command should take
+  //
+  // Value of zero means a STOP command.
+  // 
+  // Note: this is different from FAS, where this meant time between consequential
+  // steps. Simple sigma-delta like modulation is used to push out steps at uneven times,
+  // so keep in mind that the queue may produce some non-uniform noise in the steppers and
+  // slightly uneven movements. The benefit though is that the queue will produce exact count
+  // of steps at exact times, making sure no deviation happens at any speed.
+  uint32_t ticks;
 
   // Number of steps to send to the stepper motor during this command.
   // If zero, then this command will be treated as a pause, lasting for a number
   // of ticks given by `ticks`.
-  uint8_t steps;
-
-  // True if the direction pin should be high during this command, false if it
-  // should be low.
-  bool count_up;
+  // If negative, then the direction pin will be asserted low.
+  int32_t steps;
 };
-
-struct actual_ticks_s {
-  uint32_t ticks;  // ticks == 0 means standstill
-  bool count_up;
-};
-
-// I doubt, volatile is needed.
-struct queue_end_s {
-  volatile int32_t pos;  // in steps
-  volatile bool count_up;
-  volatile bool dir;
-};
-
-// use own min/max/abs function, because the lib versions are messed up
-#define fas_min(a, b) ((a) > (b) ? (b) : (a))
-#define fas_max(a, b) ((a) > (b) ? (a) : (b))
-#define fas_abs(x) ((x) >= 0 ? (x) : (-x))
 
 //==============================================================================
 // All architecture specific definitions should be located here
@@ -75,14 +61,6 @@ struct queue_end_s {
 // ESP32 derivates using espidf
 #include "fas_arch/espidf_esp32.h"
 
-#elif defined(ARDUINO_ARCH_SAM)
-// SAM-architecture
-#include "fas_arch/arduino_sam.h"
-
-#elif defined(ARDUINO_ARCH_AVR)
-// AVR family
-#include "fas_arch/arduino_avr.h"
-
 #else
 #error "Unsupported devices"
 #endif
@@ -95,11 +73,6 @@ struct queue_end_s {
     digitalWrite(pin, (value)); \
     pinMode(pin, OUTPUT);       \
   }
-#endif
-
-// disable inject_fill_interrupt() for all real devices. Only defined in TEST
-#ifndef TEST
-#define inject_fill_interrupt(x)
 #endif
 
 #endif /* FAS_COMMON_H */

@@ -4,11 +4,12 @@
 // esp32 specific includes
 #include <math.h>
 
-// on espidf need to use portDISABLE/ENABLE_INTERRUPTS
-#include <freertos/FreeRTOS.h>
-#include <freertos/task.h>
-#define fasDisableInterrupts portDISABLE_INTERRUPTS
-#define fasEnableInterrupts portENABLE_INTERRUPTS
+// on espidf need to use critical section as a safer variant. This does not disable interrupts, obviously,
+// but when used properly (ie to guard everything) provides a safe and sound alternative
+//
+// For porting back to other platforms keep in mind that those should be reentrant
+void fasDisableInterrupts();
+void fasEnableInterrupts();
 
 // The espidf-platform needs a couple of arduino like definitions
 #define LOW 0

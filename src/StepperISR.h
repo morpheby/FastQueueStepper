@@ -1,206 +1,142 @@
 #include <stdint.h>
 
-#include "FastAccelStepper.h"
+#include "FastQueueStepper.h"
 #include "fas_arch/common.h"
 
-// Here are the global variables to interface with the interrupts
-
-// These variables control the stepper timing behaviour
-#define QUEUE_LEN_MASK (QUEUE_LEN - 1)
-
-struct queue_entry {
-  uint8_t steps;  // if 0,  then the command only adds a delay
-  uint8_t toggle_dir : 1;
-  uint8_t countUp : 1;
-  uint8_t moreThanOneStep : 1;
-  uint8_t hasSteps : 1;
-#if defined(SUPPORT_EXTERNAL_DIRECTION_PIN)
-  // if repeat_entry==1, then this entry shall be repeated.
-  // This mechanism only works for pauses (steps == 0)
-  // Used for external direction pin
-  uint8_t repeat_entry : 1;
-  uint8_t dirPinState : 1;
-#endif
-  uint16_t ticks;
-#if defined(SUPPORT_QUEUE_ENTRY_END_POS_U16)
-  uint16_t end_pos_last16;
-#endif
-#if defined(SUPPORT_QUEUE_ENTRY_START_POS_U16)
-  uint16_t start_pos_last16;
-#endif
+enum class QueueCommand: uint8_t {
+  STEP,
+  TOGGLE_DIR,
+  STOP,
+  SYNC // not used yet, but intended for ESP32's RMT synchronization if super-exact movement is needed
 };
 
-class StepperQueue {
- public:
-  struct queue_entry entry[QUEUE_LEN];
+struct queue_entry {
+  QueueCommand cmd;
+  int8_t steps;
+  uint16_t ticks; // Should be less or equal to 0xFFFE
+};
 
-  // In case of forceStopAndNewPosition() the adding of commands has to be
-  // temporarily suspended
-  volatile bool ignore_commands;
-  volatile uint8_t read_idx;  // ISR stops if readptr == next_writeptr
-  volatile uint8_t next_write_idx;
-  bool dirHighCountsUp;
-  uint8_t dirPin;
-
-  // a word to isRunning():
-  //    if isRunning() is false, then the _QUEUE_ is not running.
-  //
-  // For esp32 this does NOT mean, that the HW is finished.
-  // The timer is still counting down to zero until it stops at 0.
-  // But there will be no interrupt to process another command.
-  // So the queue requires startQueue() again
-  //
-  // Due to the rmt version of esp32, there has been the needed to
-  // provide information, that device is not yet ready for new commands.
-  // This has been called isReadyForCommands().
-  //
-
-#if defined(SUPPORT_ESP32)
-  volatile bool _isRunning;
-  bool _nextCommandIsPrepared;
-  inline bool isRunning() { return _isRunning; }
-  bool isReadyForCommands();
-  bool use_rmt;
-  uint8_t _step_pin;
-  uint16_t _getPerformedPulses();
-#endif
-#ifdef SUPPORT_ESP32_MCPWM_PCNT
-  const void* driver_data;
-#endif
 #ifdef SUPPORT_ESP32_RMT
-  RMT_CHANNEL_T channel;
-  bool _rmtStopped;
-#if ESP_IDF_VERSION_MAJOR == 4
-  bool bufferContainsSteps[2];
-#else
-  bool lastChunkContainsSteps;
-  rmt_encoder_handle_t _tx_encoder;
-#endif
-#endif
-#if defined(SUPPORT_DIR_PIN_MASK)
-  volatile SUPPORT_DIR_PIN_MASK* _dirPinPort;
-  SUPPORT_DIR_PIN_MASK _dirPinMask;
-#endif
-#if defined(SUPPORT_DIR_TOGGLE_PIN_MASK)
-  volatile SUPPORT_DIR_TOGGLE_PIN_MASK* _dirTogglePinPort;
-  SUPPORT_DIR_TOGGLE_PIN_MASK _dirTogglePinMask;
-#endif
-#if defined(SUPPORT_AVR)
-  volatile bool _noMoreCommands;
-  volatile bool _isRunning;
-  inline bool isRunning() { return _isRunning; }
-  inline bool isReadyForCommands() { return true; }
-  enum channels channel;
-#endif
-#if defined(SUPPORT_SAM)
-  uint8_t _step_pin;
-  uint8_t _queue_num;
-  void* driver_data;
-  volatile bool _hasISRactive;
-  bool isRunning();
-  bool _connected;
-  inline bool isReadyForCommands() { return true; }
-  volatile bool _pauseCommanded;
-  volatile uint32_t timePWMInterruptEnabled;
-#endif
-#if defined(TEST)
-  volatile bool _isRunning;
-  inline bool isReadyForCommands() { return true; }
-  inline bool isRunning() { return _isRunning; }
+struct rmt_queue_command_t {
+  uint8_t steps;
+  uint16_t ticks; // NOTE: Should be less or equal to 0xFFFE (65534)
+};
 #endif
 
-  struct queue_end_s queue_end;
-  uint16_t max_speed_in_ticks;
+class StepperQueue {
+
+ public:
+  inline bool isRunning() { return _isRunning; }
+#if defined(SUPPORT_ESP32)
+  bool isReadyForCommands();
+#endif
 
   void init(uint8_t queue_num, uint8_t step_pin);
+
   inline uint8_t queueEntries() {
     fasDisableInterrupts();
-    uint8_t rp = read_idx;
-    uint8_t wp = next_write_idx;
+    uint16_t rp = queueReadIdx;
+    uint16_t wp = queueWriteIdx;
     fasEnableInterrupts();
-    inject_fill_interrupt(0);
-    return (uint8_t)(wp - rp);
+    return (QUEUE_LEN + wp - rp) % QUEUE_LEN;
   }
-  inline bool isQueueFull() { return queueEntries() == QUEUE_LEN; }
+  inline constexpr uint8_t queueSize() { return QUEUE_LEN; }
+  inline bool isQueueFull() { return queueEntries() == QUEUE_LEN - 1; }
   inline bool isQueueEmpty() { return queueEntries() == 0; }
-#if defined(SUPPORT_EXTERNAL_DIRECTION_PIN)
-  inline bool isOnRepeatingEntry() {
-    return entry[read_idx & QUEUE_LEN_MASK].repeat_entry == 1;
-  }
-  inline uint8_t dirPinState() {
-    return entry[read_idx & QUEUE_LEN_MASK].dirPinState;
-  }
-  inline void clearRepeatingFlag() {
-    entry[read_idx & QUEUE_LEN_MASK].repeat_entry = 0;
-  }
-#endif
 
-  int8_t addQueueEntry(const struct stepper_command_s* cmd, bool start);
-  int32_t getCurrentPosition();
+  int8_t addQueueEntry(const queue_entry &cmd);
+  
+  // Read current moves that are already done (erased from queue)
+  inline int32_t readAndClearCurrentPosition() {
+    fasDisableInterrupts();
+    int32_t cp = currentPosition;
+    currentPosition = 0;
+    fasEnableInterrupts();
+    return cp;
+  }
+
   uint32_t ticksInQueue();
-  bool hasTicksInQueue(uint32_t min_ticks);
-  bool getActualTicksWithDirection(struct actual_ticks_s* speed);
+  uint32_t hasTicksInQueue(uint32_t min_ticks);
 
   inline uint16_t getMaxSpeedInTicks() { return max_speed_in_ticks; }
 
-  // startQueue is always called
   void startQueue();
   void forceStop();
   void _initVars();
   void connect();
   void disconnect();
 
-#ifdef SUPPORT_ESP32_MCPWM_PCNT
-  bool isReadyForCommands_mcpwm_pcnt();
-  void init_mcpwm_pcnt(uint8_t channel_num, uint8_t step_pin);
-  void startQueue_mcpwm_pcnt();
-  void forceStop_mcpwm_pcnt();
-  uint16_t _getPerformedPulses_mcpwm_pcnt();
-  void connect_mcpwm_pcnt();
-  void disconnect_mcpwm_pcnt();
-#endif
-#ifdef SUPPORT_ESP32_RMT
-  bool isReadyForCommands_rmt();
-  void init_rmt(uint8_t channel_num, uint8_t step_pin);
-  void startQueue_rmt();
-#if ESP_IDF_VERSION_MAJOR == 4
-  void stop_rmt(bool both);
-#else
-  bool _channel_enabled;
-#endif
-  void forceStop_rmt();
-  uint16_t _getPerformedPulses_rmt();
-  void connect_rmt();
-  void disconnect_rmt();
-#endif
-  void setDirPin(uint8_t dir_pin, bool _dirHighCountsUp) {
-    dirPin = dir_pin;
-    dirHighCountsUp = _dirHighCountsUp;
-#if defined(SUPPORT_DIR_PIN_MASK)
-    if ((dir_pin != PIN_UNDEFINED) && ((dir_pin & PIN_EXTERNAL_FLAG) == 0)) {
-      _dirPinPort = portOutputRegister(digitalPinToPort(dir_pin));
-      _dirPinMask = digitalPinToBitMask(dir_pin);
-    }
-#endif
-#if defined(SUPPORT_DIR_TOGGLE_PIN_MASK)
-    if ((dir_pin != PIN_UNDEFINED) && ((dir_pin & PIN_EXTERNAL_FLAG) == 0)) {
-      _dirTogglePinPort = portInputRegister(digitalPinToPort(dir_pin));
-      _dirTogglePinMask = digitalPinToBitMask(dir_pin);
-    }
-#endif
-  }
 #if SUPPORT_UNSAFE_ABS_SPEED_LIMIT_SETTING == 1
   void setAbsoluteSpeedLimit(uint16_t ticks) { max_speed_in_ticks = ticks; }
 #endif
   void adjustSpeedToStepperCount(uint8_t steppers);
   static bool isValidStepPin(uint8_t step_pin);
   static int8_t queueNumForStepPin(uint8_t step_pin);
+
+ private:
+  queue_entry queue[QUEUE_LEN];
+  uint16_t queueReadIdx;
+  uint16_t queueWriteIdx;
+  int32_t currentPosition;
+  int _stepPin;
+  int _dirPin;
+
+  uint16_t max_speed_in_ticks;
+  
+  inline bool peekQueue(queue_entry &e) {
+    fasDisableInterrupts();
+    if (isQueueEmpty) return false;
+    e = queue[queueReadIdx];
+    fasEnableInterrupts();
+    return true;
+  }
+
+  inline bool readQueue(queue_entry &e) {
+    fasDisableInterrupts();
+    if (isQueueEmpty) return false;
+    e = queue[queueReadIdx];
+    queueReadIdx = (queueReadIdx + 1) % QUEUE_LEN;
+    fasEnableInterrupts();
+    return true;
+  }
+
+#if defined(SUPPORT_ESP32)
+  bool _isRunning;
+  bool _nextCommandIsPrepared;
+#endif
+
+#ifdef SUPPORT_ESP32_RMT
+  RMT_CHANNEL_T channel;
+  bool _channel_enabled;
+  bool _rmtQueueRunning;
+  bool _dirChangePending;
+  rmt_encoder_handle_t _tx_encoder;
+  static TaskHandle_t _rmtFeederTask;
+  rmt_queue_command_t rmtCmdStorage[RMT_TX_QUEUE_DEPTH];
+  uint16_t _cmdWriteIdx;
+
+  friend bool IRAM_ATTR queue_done(rmt_channel_handle_t tx_chan,
+                                   const rmt_tx_done_event_data_t *edata,
+                                   void *user_ctx);
+  friend void rmt_feeder_task_fn(void *arg);
+
+  bool isReadyForCommands_rmt();
+  void init_rmt(uint8_t channel_num, uint8_t step_pin);
+  void startQueue_rmt();
+  void forceStop_rmt();
+  void connect_rmt();
+  void disconnect_rmt();
+  bool feedRmt();
+  
+#endif
 };
 
 extern StepperQueue fas_queue[NUM_QUEUES];
 
+class FastQueueStepperEngine;
+
 #if defined(SUPPORT_CPU_AFFINITY)
-void fas_init_engine(FastAccelStepperEngine* engine, uint8_t cpu_core);
+void fas_init_engine(FastQueueStepperEngine* engine, uint8_t cpu_core);
 #else
-void fas_init_engine(FastAccelStepperEngine* engine);
+void fas_init_engine(FastQueueStepperEngine* engine);
 #endif

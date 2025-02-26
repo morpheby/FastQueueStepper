@@ -81,6 +81,7 @@ void StepperQueue::_initVars() {
   queueWriteIdx = 0;
   _dirChangePending = 0;
   _currentDirection = 1;
+  currentPosition = 0;
 #if defined(SUPPORT_ESP32)
   _isRunning = false;
   _nextCommandIsPrepared = false;

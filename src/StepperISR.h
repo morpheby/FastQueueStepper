@@ -57,7 +57,7 @@ class StepperQueue {
 
   uint32_t ticksInQueue() const;
   uint32_t hasTicksInQueue(uint32_t min_ticks) const;
-  uint32_t stepsInQueue() const;
+  int32_t stepsInQueue() const;
   int8_t directionAfterLastEntry() const;
 
   inline uint16_t getMaxSpeedInTicks() const { return max_speed_in_ticks; }

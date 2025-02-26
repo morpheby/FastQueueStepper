@@ -80,6 +80,16 @@ bool FastQueueStepper::enablePulseCounter() {
     return false;
   }
 
+  rc = pcnt_unit_add_watch_point(pcnt_unit, INT16_MAX);
+  if (rc != ESP_OK) {
+    return false;
+  }
+
+  rc = pcnt_unit_add_watch_point(pcnt_unit, INT16_MIN);
+  if (rc != ESP_OK) {
+    return false;
+  }
+  
   rc = pcnt_unit_enable(punit);
   if (rc != ESP_OK) {
     return false;

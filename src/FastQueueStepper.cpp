@@ -89,6 +89,8 @@ void FastQueueStepperEngine::changeDirectionIfNeeded() {
     FastQueueStepper *stepper = _steppers[stepperIdx];
     if (stepper == NULL) continue;
 
+    if (stepper->getDirectionPin() == PIN_UNDEFINED) continue;
+
     int8_t currentDirection = stepper->_queue->currentDirection() * (stepper->directionPinHighCountsUp() ? 1 : -1);
     int8_t wantedDirection = stepper->isQueueRunning() 
       ? stepper->_queue->directionChangePending() * (stepper->directionPinHighCountsUp() ? 1 : -1)
@@ -156,6 +158,8 @@ void FastQueueStepperEngine::autoEnableDisableIfNeeded() {
   for (int stepperIdx = 0; stepperIdx < MAX_STEPPER; ++stepperIdx) {
     FastQueueStepper *stepper = _steppers[stepperIdx];
     if (stepper == NULL) continue;
+
+    if (stepper->getEnablePin() == PIN_UNDEFINED) continue;
 
     bool neededStatus = (!stepper->enablePinHighIsActive()) ^ (stepper->isAutoEnable()
                                                                ? (!stepper->_queue->isQueueEmpty())
@@ -331,8 +335,9 @@ int8_t FastQueueStepper::addQueueEntry(const stepper_command_s &cmd) {
   }
 
   // Check how much stepper commands we will need
-  const uint32_t stepCommandCount = std::max((uint32_t) std::abs(cmd.steps) / UINT8_MAX + (std::abs(cmd.steps) % UINT8_MAX != 0 ? 1 : 0),
-                                             cmd.ticks / QUEUE_ENTRY_MAX_TICKS + (cmd.ticks % QUEUE_ENTRY_MAX_TICKS != 0 ? 1 : 0));
+  const uint32_t stepCommandCount = std::max({(uint32_t) std::abs(cmd.steps) / UINT8_MAX + (std::abs(cmd.steps) % UINT8_MAX != 0 ? 1 : 0),
+                                              cmd.ticks / QUEUE_ENTRY_MAX_TICKS + (cmd.ticks % QUEUE_ENTRY_MAX_TICKS != 0 ? 1 : 0),
+                                              (uint32_t) 1});
 
   if (stepCommandCount > _queue->queueSize() - 1) {
     return AQE_ERROR_MOVE_TOO_LARGE;
@@ -431,8 +436,8 @@ int8_t FastQueueStepper::addQueueEntry(const stepper_command_s &cmd) {
   
   if (cmd.steps != 0) {
     // Delay was already processed separately, so we only process step command here
-    uint32_t ticksDone = cmd.ticks, ticksRemainder = 0;
-    uint32_t stepsDone = cmd.steps, stepsRemainder = 0;
+    uint32_t ticksDone = 0, ticksRemainder = 0;
+    uint32_t stepsDone = 0, stepsRemainder = 0;
 
     while (ticksDone < cmd.ticks || stepsDone < cmd.steps) {
       uint32_t ticksInEntry = (cmd.ticks + ticksRemainder) / stepCommandCount;
@@ -604,7 +609,7 @@ void FastQueueStepper::setPositionAfterCommandsCompleted(int32_t new_pos) {
   fasEnableInterrupts();
 }
 int8_t FastQueueStepper::performOneStep(bool count_up, bool blocking) {
-  int8_t result = addQueueEntry({.ticks = 16, .steps = count_up ? 1 : -1});
+  int8_t result = addQueueEntry({.ticks = 512, .steps = count_up ? 1 : -1});
   if (result != AQE_OK) return result;
   if (blocking) {
     // Make sure queue is running

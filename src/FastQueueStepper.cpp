@@ -331,7 +331,7 @@ int8_t FastQueueStepper::addQueueEntry(const stepper_command_s &cmd) {
   }
 
   if (cmd.ticks < _queue->getMaxSpeedInTicks() || 
-      (cmd.steps != 0 && cmd.ticks / cmd.steps < _queue->getMaxSpeedInTicks())) {
+      (cmd.steps != 0 && std::abs(cmd.ticks / cmd.steps) < _queue->getMaxSpeedInTicks())) {
     return AQE_ERROR_TICKS_TOO_LOW;
   }
 

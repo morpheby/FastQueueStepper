@@ -27,7 +27,6 @@ bool IRAM_ATTR fas_rmt_queue_done(rmt_channel_handle_t tx_chan,
   StepperQueue *q = (StepperQueue *)user_ctx;
   BaseType_t xHigherPriorityTaskWoken = pdFALSE;
   fasDisableInterrupts();
-  q->_rmtQueueRunning = false;
   if (q->directionChangePending() != 0) {
     // Next commands require change of direction, so wake up
     xTimerPendFunctionCallFromISR(change_direction_and_continue_queue_fn, q, 0, &xHigherPriorityTaskWoken);
@@ -54,7 +53,7 @@ static size_t encode_current_command(queue_command_encoder_t *queue_command_enco
                                      rmt_encode_state_t *ret_state) {
   size_t symbolsEncoded = 0;
   while (queue_command_encoder->currentQueueEntry.ticks != queue_command_encoder->ticksDone) {
-    assert(queue_command_encoder->currentQueueEntry.ticks < queue_command_encoder->ticksDone);
+    assert(queue_command_encoder->currentQueueEntry.ticks > queue_command_encoder->ticksDone);
     // Has ticks in current command left. Continue to fill queue
     rmt_encode_state_t session_state = RMT_ENCODING_RESET;
     bool hasSteps = queue_command_encoder->currentQueueEntry.steps != 0;
@@ -69,7 +68,8 @@ static size_t encode_current_command(queue_command_encoder_t *queue_command_enco
       continue;
     }
 
-    uint16_t halfDuration = duration >> 1, remainingDuration = duration - halfDuration;
+    uint16_t halfDuration = duration >> 1,
+             remainingDuration = duration - halfDuration;
 
     rmt_symbol_word_t s = {
       .duration0 = halfDuration,
@@ -146,6 +146,7 @@ rmt_encoder_handle_t encoder_create() {
   queue_command_encoder_t *queue_encoder = (queue_command_encoder_t *) rmt_alloc_encoder_mem(sizeof(queue_command_encoder_t));
   queue_encoder->base.del = encoder_delete;
   queue_encoder->base.reset = encoder_reset;
+  queue_encoder->base.encode = encode_command;
   rmt_copy_encoder_config_t copy_encoder_config = {};
   rmt_new_copy_encoder(&copy_encoder_config, &queue_encoder->copy_encoder);
 
@@ -324,6 +325,10 @@ void rmt_feeder_task_fn(void *arg) {
 
 TaskHandle_t StepperQueue::_rmtFeederTask = NULL;
 
+void StepperQueue::notifyRmt() {
+  xTaskNotifyGive(_rmtFeederTask);
+}
+
 void StepperQueue::connect_rmt() {
   _initVars();
   
@@ -335,7 +340,6 @@ void StepperQueue::connect_rmt() {
   digitalWrite(_stepPin, LOW);
 
   _isRunning = false;
-  _rmtQueueRunning = false;
 
   rmt_tx_channel_config_t config {
     .gpio_num = (gpio_num_t)_stepPin,          /*!< GPIO number used by RMT TX channel. Set to -1 if unused */
@@ -367,7 +371,7 @@ void StepperQueue::connect_rmt() {
 }
 
 void StepperQueue::disconnect_rmt() {
-  if (_channel_enabled || _isRunning || _rmtQueueRunning) {
+  if (_channel_enabled || _isRunning) {
     return;
   }
   rmt_del_channel(channel);
@@ -386,7 +390,7 @@ void StepperQueue::startQueue_rmt() {
   }
 
   // Confirm that we actually need this
-  if (_rmtQueueRunning) return;
+  if (_isRunning) return;
 
   // Check direction change request
   fasDisableInterrupts();
@@ -411,7 +415,7 @@ void StepperQueue::startQueue_rmt() {
   _isRunning = true;
   fasEnableInterrupts();
 
-  xTaskNotifyGive(_rmtFeederTask);
+  notifyRmt();
 }
 
 bool StepperQueue::feedRmt() {
@@ -430,6 +434,7 @@ bool StepperQueue::feedRmt() {
     // Queue is empty, nothing to start
     return false;
   }
+
   if (entry.cmd == QueueCommand::TOGGLE_DIR) {
     // Temporarily starve the queue, until direction is changed
     fasDisableInterrupts();
@@ -452,7 +457,6 @@ bool StepperQueue::feedRmt() {
     .ticks = entry.ticks,
   };
   
-  _rmtQueueRunning = true;
   rmt_transmit(channel, _tx_encoder, &rmtCmdStorage[_cmdWriteIdx], sizeof(rmt_queue_command_t), &tx_config);
   currentPosition += entry.steps * currentDirection();
 
@@ -469,7 +473,6 @@ void StepperQueue::forceStop_rmt() {
   fasDisableInterrupts();
   _channel_enabled = false;
   _isRunning = false;
-  _rmtQueueRunning = false;
   queueReadIdx = queueWriteIdx;
   fasEnableInterrupts();
 }

@@ -136,7 +136,6 @@ class StepperQueue {
 #ifdef SUPPORT_ESP32_RMT
   RMT_CHANNEL_T channel;
   bool _channel_enabled;
-  bool _rmtQueueRunning;
   int8_t _dirChangePending;
   rmt_encoder_handle_t _tx_encoder;
   static TaskHandle_t _rmtFeederTask;
@@ -154,6 +153,7 @@ class StepperQueue {
   void connect_rmt();
   void disconnect_rmt();
   bool feedRmt();
+  void notifyRmt();
   
 #endif
 };

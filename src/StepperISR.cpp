@@ -9,11 +9,15 @@ int8_t StepperQueue::addQueueEntry(const queue_entry &cmd) {
     fasEnableInterrupts();
     return AQE_QUEUE_FULL;
   }
-  
+
   queue[queueWriteIdx] = cmd;
 
   queueWriteIdx = (queueWriteIdx + 1) % QUEUE_LEN;
   fasEnableInterrupts();
+
+#ifdef SUPPORT_ESP32_RMT
+  notifyRmt();
+#endif
 
   return AQE_OK;
 }
@@ -82,7 +86,6 @@ void StepperQueue::_initVars() {
   _nextCommandIsPrepared = false;
 #endif
 #if defined(SUPPORT_ESP32_RMT)
-  _rmtQueueRunning = false;
   _cmdWriteIdx = 0;
 #endif
 }

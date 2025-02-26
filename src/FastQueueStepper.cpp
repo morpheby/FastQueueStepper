@@ -245,8 +245,6 @@ FastQueueStepper* FastQueueStepperEngine::stepperConnectToPin(uint8_t step_pin)
   StepperQueue *queue = StepperQueue::getFreeQueue();
   if (queue == NULL) return NULL;
 
-  queue->connect(step_pin, this);
-
   FastQueueStepper *s = NULL;
   for (int stepperIdx = 0; stepperIdx < MAX_STEPPER; ++stepperIdx) {
     int j;
@@ -258,6 +256,13 @@ FastQueueStepper* FastQueueStepperEngine::stepperConnectToPin(uint8_t step_pin)
 
   if (s == NULL) return NULL;
   
+  int storedStepperIdx;
+  for (storedStepperIdx = 0; storedStepperIdx < MAX_STEPPER; ++storedStepperIdx) if (_steppers[storedStepperIdx] == NULL) break;
+  if (storedStepperIdx == MAX_STEPPER) return NULL;
+
+  _steppers[storedStepperIdx] = s;
+
+  queue->connect(step_pin, this);  
   s->init(this, queue);
   
   int stepperCount = 0;
@@ -459,6 +464,7 @@ int8_t FastQueueStepper::addQueueEntry(const stepper_command_s &cmd) {
 
 void FastQueueStepper::init(FastQueueStepperEngine* engine, StepperQueue *queue) {
   _engine = engine;
+  _queue = queue;
   _autoEnable = false;
   _dir_change_delay_ticks = 0;
   _on_delay_ticks = 0;

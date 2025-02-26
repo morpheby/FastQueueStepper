@@ -126,6 +126,7 @@ void FastQueueStepper::disablePulseCounter() {
 void FastQueueStepper::clearPulseCounter() {
   pcnt_unit_clear_count(_attached_pulse_unit);
 }
+
 int32_t FastQueueStepper::readPulseCounter() {
   int value = 0;
   pcnt_unit_get_count(_attached_pulse_unit, &value);

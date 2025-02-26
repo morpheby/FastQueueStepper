@@ -12,7 +12,7 @@ void fasDisableInterrupts() {
 }
 
 void fasEnableInterrupts() {
-    portENTER_CRITICAL(&lock);
+    portEXIT_CRITICAL(&lock);
 }
 
 #endif

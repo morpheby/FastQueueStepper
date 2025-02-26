@@ -453,7 +453,7 @@ bool StepperQueue::feedRmt() {
   };
   
   _rmtQueueRunning = true;
-  // rmt_transmit(channel, _tx_encoder, &rmtCmdStorage[_cmdWriteIdx], sizeof(rmt_queue_command_t), &tx_config);
+  rmt_transmit(channel, _tx_encoder, &rmtCmdStorage[_cmdWriteIdx], sizeof(rmt_queue_command_t), &tx_config);
   currentPosition += entry.steps * currentDirection();
 
   _cmdWriteIdx = (_cmdWriteIdx + 1) % RMT_TX_QUEUE_DEPTH;

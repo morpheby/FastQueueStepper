@@ -107,7 +107,10 @@ class StepperQueue {
 
   inline bool peekQueue(queue_entry &e) const {
     fasDisableInterrupts();
-    if (isQueueEmpty()) return false;
+    if (isQueueEmpty()) {
+      fasEnableInterrupts();
+      return false;
+    }
     e = queue[queueReadIdx];
     fasEnableInterrupts();
     return true;
@@ -115,7 +118,10 @@ class StepperQueue {
 
   inline bool readQueue(queue_entry &e) {
     fasDisableInterrupts();
-    if (isQueueEmpty()) return false;
+    if (isQueueEmpty()) {
+      fasEnableInterrupts();
+      return false;
+    }
     e = queue[queueReadIdx];
     queueReadIdx = (queueReadIdx + 1) % QUEUE_LEN;
     fasEnableInterrupts();

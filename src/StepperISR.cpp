@@ -9,17 +9,7 @@ int8_t StepperQueue::addQueueEntry(const queue_entry &cmd) {
     fasEnableInterrupts();
     return AQE_QUEUE_FULL;
   }
-
-  // uint16_t period = cmd->ticks;
-  // uint8_t steps = cmd->steps;
-  // uint32_t command_rate_ticks = period;
-  // if (steps > 1) {
-  //   command_rate_ticks *= steps;
-  // }
-  // if (command_rate_ticks < MIN_CMD_TICKS) {
-  //   return AQE_ERROR_TICKS_TOO_LOW;
-  // }
-
+  
   queue[queueWriteIdx] = cmd;
 
   queueWriteIdx = (queueWriteIdx + 1) % QUEUE_LEN;

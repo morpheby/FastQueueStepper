@@ -464,9 +464,9 @@ bool StepperQueue::feedRmt() {
 }
 
 void StepperQueue::forceStop_rmt() {
-  fasDisableInterrupts();
   if (_channel_enabled)
     rmt_disable(channel);
+  fasDisableInterrupts();
   _channel_enabled = false;
   _isRunning = false;
   _rmtQueueRunning = false;

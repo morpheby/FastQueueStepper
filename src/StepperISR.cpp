@@ -39,11 +39,11 @@ uint32_t StepperQueue::hasTicksInQueue(uint32_t min_ticks) const {
   return ticks;
 }
 
-uint32_t StepperQueue::stepsInQueue() const {
+int32_t StepperQueue::stepsInQueue() const {
   fasDisableInterrupts();
 
-  uint32_t steps = 0;
-  uint32_t multiplier = currentDirection();
+  int32_t steps = 0;
+  int32_t multiplier = currentDirection();
   for (uint16_t rp = queueReadIdx; rp < queueWriteIdx; rp = (rp + 1) % QUEUE_LEN) {
     const queue_entry &entry = queue[rp];
     if (entry.cmd == QueueCommand::TOGGLE_DIR) {
@@ -60,7 +60,7 @@ uint32_t StepperQueue::stepsInQueue() const {
 int8_t StepperQueue::directionAfterLastEntry() const {
   fasDisableInterrupts();
 
-  uint32_t direction = currentDirection();
+  int8_t direction = currentDirection();
   for (uint16_t rp = queueReadIdx; rp < queueWriteIdx; rp = (rp + 1) % QUEUE_LEN) {
     const queue_entry &entry = queue[rp];
     if (entry.cmd == QueueCommand::TOGGLE_DIR) {

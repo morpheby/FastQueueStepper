@@ -32,7 +32,7 @@ static bool IRAM_ATTR queue_done(rmt_channel_handle_t tx_chan,
   BaseType_t xHigherPriorityTaskWoken = pdFALSE;
   fasDisableInterrupts();
   q->_rmtQueueRunning = false;
-  if (q->_dirChangePending) {
+  if (q->directionChangePending() != 0) {
     // Next commands require change of direction, so wake up
     xTimerPendFunctionCallFromISR(change_direction_and_continue_queue_fn, q, 0, &xHigherPriorityTaskWoken);
   }
@@ -313,7 +313,7 @@ void rmt_feeder_task_fn(void *arg) {
   while (true) {
     bool nothingToDo = true;
     for (int i = 0; i < NUM_QUEUES; ++i) {
-      if (fas_queue[i]._isRunning && fas_queue[i].feedRmt()) {
+      if (fas_queue[i]._isRunning && fas_queue[i]._dirChangePending == 0 && fas_queue[i].feedRmt()) {
         nothingToDo = false;
       }
     }
@@ -326,23 +326,19 @@ void rmt_feeder_task_fn(void *arg) {
 
 TaskHandle_t StepperQueue::_rmtFeederTask = NULL;
 
-void StepperQueue::init_rmt(uint8_t channel_num, uint8_t step_pin) {
+void StepperQueue::connect_rmt() {
   _initVars();
-  _stepPin = step_pin;
-  pinMode(step_pin, OUTPUT);
-  digitalWrite(step_pin, LOW);
-
-  _tx_encoder = encoder_create();
-  connect_rmt();
-  _isRunning = false;
-  _rmtQueueRunning = false;
-
+  
   if (StepperQueue::_rmtFeederTask == NULL) {
     xTaskCreate(rmt_feeder_task_fn, "RMT Feed", 2048, NULL, 6, &_rmtFeederTask);
   }
-}
 
-void StepperQueue::connect_rmt() {
+  pinMode(_stepPin, OUTPUT);
+  digitalWrite(_stepPin, LOW);
+
+  _isRunning = false;
+  _rmtQueueRunning = false;
+
   rmt_tx_channel_config_t config {
     .gpio_num = (gpio_num_t)_stepPin,          /*!< GPIO number used by RMT TX channel. Set to -1 if unused */
     .clk_src = RMT_CLK_SRC_DEFAULT,            /*!< Clock source of RMT TX channel, channels in the same group must use the same clock source */
@@ -366,6 +362,8 @@ void StepperQueue::connect_rmt() {
 
   rmt_tx_event_callbacks_t callbacks = {.on_trans_done = queue_done};
   rmt_tx_register_event_callbacks(channel, &callbacks, this);
+  
+  _tx_encoder = encoder_create();
 
   _channel_enabled = false;
 }
@@ -376,6 +374,12 @@ void StepperQueue::disconnect_rmt() {
   }
   rmt_del_channel(channel);
   channel = NULL;
+  encoder_delete(_tx_encoder);
+  _tx_encoder = NULL;
+}
+
+bool StepperQueue::isConnected_rmt() const {
+  return channel != NULL;
 }
 
 void StepperQueue::startQueue_rmt() {
@@ -383,11 +387,22 @@ void StepperQueue::startQueue_rmt() {
     return;
   }
 
-  // set dirpin toggle here
+  // Confirm that we actually need this
+  if (_rmtQueueRunning) return;
+
+  // Check direction change request
   fasDisableInterrupts();
-  if (_dirChangePending) {
-    LL_TOGGLE_PIN(_dirPin);
-    _dirChangePending = false;
+  {
+    int8_t directionChange = directionChangePending();
+    if (directionChange != 0 &&
+        directionChange != currentDirection()) {
+      fasEnableInterrupts();
+      _engine->changeDirectionIfNeeded();
+      return;
+    } else {
+      // Direction change completed or wasn't needed
+      _dirChangePending = 0;
+    }
   }
 
   if (!_channel_enabled) {
@@ -420,7 +435,8 @@ bool StepperQueue::feedRmt() {
   if (entry.cmd == QueueCommand::TOGGLE_DIR) {
     // Temporarily starve the queue, until direction is changed
     fasDisableInterrupts();
-    _dirChangePending = true;
+    _dirChangePending = entry.ticks == QUEUE_ENTRY_DIRECTION_NEGATIVE ? -1 : 1;
+    // TODO: Probably weird and unobvious choice. Think about it later
     fasEnableInterrupts();
     return false;
   } else if (entry.cmd == QueueCommand::STOP) {
@@ -434,12 +450,13 @@ bool StepperQueue::feedRmt() {
   fasDisableInterrupts();
   // Prepare the commands
   rmtCmdStorage[_cmdWriteIdx] = rmt_queue_command_t {
-    .steps = std::abs(entry.steps),
+    .steps = entry.steps,
     .ticks = entry.ticks,
   };
   
   _rmtQueueRunning = true;
   rmt_transmit(channel, _tx_encoder, &rmtCmdStorage[_cmdWriteIdx], sizeof(rmt_queue_command_t), &tx_config);
+  currentPosition += entry.steps * currentDirection();
 
   _cmdWriteIdx = (_cmdWriteIdx + 1) % RMT_TX_QUEUE_DEPTH;
 
@@ -455,10 +472,6 @@ void StepperQueue::forceStop_rmt() {
   _rmtQueueRunning = false;
   queueReadIdx = queueWriteIdx;
   fasEnableInterrupts();
-}
-
-bool StepperQueue::isReadyForCommands_rmt() {
-  return true;
 }
 
 #endif

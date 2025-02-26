@@ -117,6 +117,12 @@ bool FastQueueStepper::enablePulseCounter() {
   return true;
 }
 
+void FastQueueStepper::disablePulseCounter() {
+  // I don't want to figure out GPIO mux yet, so this won't do anything
+  // _attached_pulse_unit = NULL;
+  // TODO: Implement
+}
+
 void FastQueueStepper::clearPulseCounter() {
   pcnt_unit_clear_count(_attached_pulse_unit);
 }

@@ -3,11 +3,6 @@
 
 #define TICKS_FOR_STOPPED_MOTOR 0xffffffff
 
-#define MOVE_OK 0
-#define MOVE_ERR_NO_DIRECTION_PIN -1
-#define MOVE_ERR_SPEED_IS_UNDEFINED -2
-#define MOVE_ERR_ACCELERATION_IS_UNDEFINED -3
-
 // Low level stepper motor command.
 //
 // You can add these using the addQueueEntry method.

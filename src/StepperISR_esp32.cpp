@@ -5,32 +5,31 @@
 // Here are the global variables to interface with the interrupts
 StepperQueue fas_queue[NUM_QUEUES];
 
-void StepperQueue::init(uint8_t queue_num, uint8_t step_pin) {
-  uint8_t channel = queue_num;
-#ifdef SUPPORT_ESP32_RMT
-  init_rmt(channel, step_pin);
-#endif
+StepperQueue *StepperQueue::getFreeQueue() {
+  for (int i = 0; i < NUM_QUEUES; ++i) {
+    if (fas_queue[i].isConnected()) continue;
+    return &fas_queue[i];
+  }
 }
 
-void StepperQueue::connect() {
+void StepperQueue::connect(uint8_t step_pin, FastQueueStepperEngine *engine) {
+  _engine = engine;
+  _stepPin = step_pin;
 #ifdef SUPPORT_ESP32_RMT
   connect_rmt();
-  return;
 #endif
 }
 
 void StepperQueue::disconnect() {
 #ifdef SUPPORT_ESP32_RMT
   disconnect_rmt();
-  return;
 #endif
+  _engine = NULL;
 }
 
-bool StepperQueue::isReadyForCommands() {
-#if defined(SUPPORT_ESP32_RMT)
-  return isReadyForCommands_rmt();
-#else
-#error "Nothing defined here"
+bool StepperQueue::isConnected() const {
+#ifdef SUPPORT_ESP32_RMT
+  return isConnected_rmt();
 #endif
 }
 
@@ -54,7 +53,6 @@ bool StepperQueue::isValidStepPin(uint8_t step_pin) {
   esp_err_t res = gpio_get_drive_capability((gpio_num_t)step_pin, &strength);
   return res == ESP_OK;
 }
-int8_t StepperQueue::queueNumForStepPin(uint8_t step_pin) { return -1; }
 
 //*************************************************************************************************
 void StepperTask(void *parameter) {

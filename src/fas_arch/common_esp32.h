@@ -35,6 +35,10 @@
 #define MIN_DIR_DELAY_US (MIN_CMD_TICKS / (TICKS_PER_S / 1000000))
 #define MAX_DIR_DELAY_US (65535 / (TICKS_PER_S / 1000000))
 #define DELAY_MS_BASE 4
+#define US_TO_TICKS(u32) \
+  (((uint32_t)u32) / (TICKS_PER_S / 1000000))
+#define TICKS_TO_US(u32) \
+  (((uint32_t)u32) * (TICKS_PER_S / 1000000L))
 
 // debug led timing
 #define DEBUG_LED_HALF_PERIOD 50

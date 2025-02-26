@@ -7,14 +7,18 @@ enum class QueueCommand: uint8_t {
   STEP,
   TOGGLE_DIR,
   STOP,
-  SYNC // not used yet, but intended for ESP32's RMT synchronization if super-exact movement is needed
+  SYNC // not used yet, but intended for intra-stepper synchronization, in case precise timings needed between queues
 };
 
 struct queue_entry {
   QueueCommand cmd;
-  int8_t steps;
+  uint8_t steps;
   uint16_t ticks; // Should be less or equal to 0xFFFE
 };
+
+#define QUEUE_ENTRY_MAX_TICKS ((uint16_t)0xFFFE)
+#define QUEUE_ENTRY_DIRECTION_POSITIVE (0x0000)
+#define QUEUE_ENTRY_DIRECTION_NEGATIVE (0xFFFF)
 
 #ifdef SUPPORT_ESP32_RMT
 struct rmt_queue_command_t {
@@ -26,23 +30,19 @@ struct rmt_queue_command_t {
 class StepperQueue {
 
  public:
-  inline bool isRunning() { return _isRunning; }
-#if defined(SUPPORT_ESP32)
-  bool isReadyForCommands();
-#endif
+  inline bool isRunning() const { return _isRunning; }
+  bool isConnected() const;
 
-  void init(uint8_t queue_num, uint8_t step_pin);
+  static StepperQueue *getFreeQueue();
+  void connect(uint8_t step_pin, FastQueueStepperEngine *engine);
+  void disconnect();
 
-  inline uint8_t queueEntries() {
-    fasDisableInterrupts();
-    uint16_t rp = queueReadIdx;
-    uint16_t wp = queueWriteIdx;
-    fasEnableInterrupts();
-    return (QUEUE_LEN + wp - rp) % QUEUE_LEN;
-  }
-  inline constexpr uint8_t queueSize() { return QUEUE_LEN; }
-  inline bool isQueueFull() { return queueEntries() == QUEUE_LEN - 1; }
-  inline bool isQueueEmpty() { return queueEntries() == 0; }
+  inline uint8_t queueEntriesAvailable() const { return QUEUE_LEN - queueEntries() - 1; }
+  inline constexpr uint8_t queueSize() { return QUEUE_LEN - 1; }
+  inline bool isQueueFull() const { return queueEntries() == QUEUE_LEN - 1; }
+  inline bool isQueueEmpty() const { return queueEntries() == 0; }
+
+  inline uint8_t getStepPin() const { return _stepPin; }
 
   int8_t addQueueEntry(const queue_entry &cmd);
   
@@ -55,37 +55,67 @@ class StepperQueue {
     return cp;
   }
 
-  uint32_t ticksInQueue();
-  uint32_t hasTicksInQueue(uint32_t min_ticks);
+  uint32_t ticksInQueue() const;
+  uint32_t hasTicksInQueue(uint32_t min_ticks) const;
+  uint32_t stepsInQueue() const;
+  int8_t directionAfterLastEntry() const;
 
-  inline uint16_t getMaxSpeedInTicks() { return max_speed_in_ticks; }
+  inline uint16_t getMaxSpeedInTicks() const { return max_speed_in_ticks; }
 
   void startQueue();
   void forceStop();
-  void _initVars();
-  void connect();
-  void disconnect();
+  void resetQueue();
+
+  inline int8_t directionChangePending() const {
+    fasDisableInterrupts();
+    int8_t r = _dirChangePending;
+    fasEnableInterrupts();
+    return r;
+  }
+
+  inline int8_t currentDirection() const {
+    fasDisableInterrupts();
+    int8_t r = _currentDirection;
+    fasEnableInterrupts();
+    return r;
+  }
+
+  inline void setDirection(int8_t dir) {
+    fasDisableInterrupts();
+    _currentDirection = dir;
+    fasEnableInterrupts();
+  }
 
 #if SUPPORT_UNSAFE_ABS_SPEED_LIMIT_SETTING == 1
   void setAbsoluteSpeedLimit(uint16_t ticks) { max_speed_in_ticks = ticks; }
 #endif
   void adjustSpeedToStepperCount(uint8_t steppers);
   static bool isValidStepPin(uint8_t step_pin);
-  static int8_t queueNumForStepPin(uint8_t step_pin);
 
  private:
   queue_entry queue[QUEUE_LEN];
   uint16_t queueReadIdx;
   uint16_t queueWriteIdx;
   int32_t currentPosition;
+  int8_t _currentDirection;
+  FastQueueStepperEngine *_engine;
   int _stepPin;
-  int _dirPin;
 
   uint16_t max_speed_in_ticks;
   
-  inline bool peekQueue(queue_entry &e) {
+  void _initVars();
+
+  inline uint8_t queueEntries() const {
     fasDisableInterrupts();
-    if (isQueueEmpty) return false;
+    uint16_t rp = queueReadIdx;
+    uint16_t wp = queueWriteIdx;
+    fasEnableInterrupts();
+    return (QUEUE_LEN + wp - rp) % QUEUE_LEN;
+  }
+
+  inline bool peekQueue(queue_entry &e) const {
+    fasDisableInterrupts();
+    if (isQueueEmpty()) return false;
     e = queue[queueReadIdx];
     fasEnableInterrupts();
     return true;
@@ -109,7 +139,7 @@ class StepperQueue {
   RMT_CHANNEL_T channel;
   bool _channel_enabled;
   bool _rmtQueueRunning;
-  bool _dirChangePending;
+  int8_t _dirChangePending;
   rmt_encoder_handle_t _tx_encoder;
   static TaskHandle_t _rmtFeederTask;
   rmt_queue_command_t rmtCmdStorage[RMT_TX_QUEUE_DEPTH];
@@ -120,8 +150,7 @@ class StepperQueue {
                                    void *user_ctx);
   friend void rmt_feeder_task_fn(void *arg);
 
-  bool isReadyForCommands_rmt();
-  void init_rmt(uint8_t channel_num, uint8_t step_pin);
+  bool isConnected_rmt() const;
   void startQueue_rmt();
   void forceStop_rmt();
   void connect_rmt();

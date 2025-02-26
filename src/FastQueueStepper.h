@@ -26,8 +26,10 @@ class FastQueueStepperEngine {
   // step pin cannot be used, then NULL is returned. So it is advised to check
   // the return value of this call.
 #if !defined(SUPPORT_SELECT_DRIVER_TYPE)
-  FastAccelStepper* stepperConnectToPin(uint8_t step_pin);
+  FastQueueStepper* stepperConnectToPin(uint8_t step_pin);
 #endif
+
+  void detachStepper(FastQueueStepper *stepper);
 
 #if defined(SUPPORT_TASK_RATE_CHANGE)
   // For e.g. esp32 the repetition rate of the stepper task can be changed.
@@ -105,15 +107,23 @@ class FastQueueStepperEngine {
   void manageSteppers();
 
  private:
-  bool isDirPinBusy(uint8_t dirPin, uint8_t except_stepper);
+  void setStepperDirectionPin(FastQueueStepper *stepper, uint8_t dir_pin);
+  void setStepperEnablePin(FastQueueStepper *stepper, uint8_t en_pin);
+  
+  void setStepperSharedPin(FastQueueStepper *stepper, uint8_t pin, uint8_t *list, uint8_t (FastQueueStepper::*pinFunc)() const);
 
-  uint8_t _stepper_cnt;
-  FastAccelStepper* _stepper[MAX_STEPPER];
+  void changeDirectionIfNeeded();
+  void autoEnableDisableIfNeeded();
+
+  FastQueueStepper* _steppers[MAX_STEPPER];
+  uint8_t sharedDirectionPinList[MAX_STEPPER];
+  uint8_t sharedEnablePinList[MAX_STEPPER];
 
   bool _isValidStepPin(uint8_t step_pin);
   bool (*_externalCallForPin)(uint8_t pin, uint8_t value);
 
-  friend class FastAccelStepper;
+  friend class FastQueueStepper;
+  friend class StepperQueue;
 };
 
 //
@@ -150,14 +160,16 @@ class FastQueueStepperEngine {
 #define PIN_UNDEFINED 255
 #define PIN_EXTERNAL_FLAG 128
 
+class StepperQueue;
+
 class FastQueueStepper {
  private:
-  void init(FastQueueStepperEngine* engine, uint8_t num, uint8_t step_pin);
+  void init(FastQueueStepperEngine* engine, StepperQueue *queue);
 
  public:
   // ## Step Pin
   // step pin is defined at creation. Here can retrieve the pin
-  uint8_t getStepPin();
+  inline uint8_t getStepPin() const { _queue->getStepPin(); }
 
   // ## Direction Pin
   // if direction pin is connected, call this function.
@@ -177,9 +189,9 @@ class FastQueueStepper {
   // because the mechanism applied for external pins provides already pause
   // in the range of ms or more.
   void setDirectionPin(uint8_t dirPin, bool dirHighCountsUp = true,
-                       uint16_t dir_change_delay_us = 0);
-  inline uint8_t getDirectionPin() { return _dirPin; }
-  inline bool directionPinHighCountsUp() { return _dirHighCountsUp; }
+                       uint32_t dir_change_delay_us = 0);
+  inline uint8_t getDirectionPin() const { return _dirPin; }
+  inline bool directionPinHighCountsUp() const { return _dirHighCountsUp; } 
 
   // ## Enable Pin
   // if enable pin is connected, then use this function.
@@ -187,35 +199,21 @@ class FastQueueStepper {
   // If the pin number is >= 128, then the enable pin is assumed to be
   // external and the external callback function (set by
   // `setExternalCallForPin()`) is used to set the pin.
-  //
-  // In case there are two enable pins: one low and one high active, then
-  // these calls are valid and both pins will be operated:
-  //    setEnablePin(pin1, true);
-  //    setEnablePin(pin2, false);
-  // If pin1 and pin2 are same, then the last call will be used.
-  void setEnablePin(uint8_t enablePin, bool low_active_enables_stepper = true);
-  inline uint8_t getEnablePinHighActive() { return _enablePinHighActive; }
-  inline uint8_t getEnablePinLowActive() { return _enablePinLowActive; }
+  void setEnablePin(uint8_t enablePin, bool highIsActive = true);
+  inline bool enablePinHighIsActive() const { return _enablePinHighIsActive; };
+  inline uint8_t getEnablePin() const { return _enablePin; }
 
-  // using enableOutputs/disableOutputs the stepper can be enabled and disabled
-  // For a running motor with autoEnable set, disableOutputs() will return false
-  bool enableOutputs();   // returns true, if enabled
-  bool disableOutputs();  // returns true, if disabled
+  // using enableOutputs/disableOutputs the stepper can be enabled and disabled.
+  // If autoenable is turned on, this is a NOP
+  void enableOutputs();
+  void disableOutputs();
+  inline bool isEnabled() const { return _enabled; }
 
   // In auto enable mode, the stepper is enabled before stepping and disabled
-  // afterwards. The delay from stepper enabled till first step and from
-  // last step to stepper disabled can be separately adjusted.
-  // The delay from enable to first step is done in ticks and as such is limited
-  // to MAX_ON_DELAY_TICKS, which translates approximately to 120ms for
-  // esp32 and 60ms for avr at 16 MHz). The delay till disable is done in period
-  // interrupt/task with 4 or 10 ms repetition rate and as such is with several
-  // ms jitter.
-  void setAutoEnable(bool auto_enable);
-  int8_t setDelayToEnable(uint32_t delay_us);
-  void setDelayToDisable(uint16_t delay_ms);
-#define DELAY_OK 0
-#define DELAY_TOO_LOW -1
-#define DELAY_TOO_HIGH -2
+  // afterwards.
+  inline void setAutoEnable(bool auto_enable) { _autoEnable = auto_enable; }
+  inline bool isAutoEnable() const { return _autoEnable; };
+  void setDelayToEnable(uint32_t delay_us);
 
   // ## Stepper Position
   // Retrieve the current position of the stepper
@@ -236,29 +234,47 @@ class FastQueueStepper {
   //
 #if defined(SUPPORT_ESP32_PULSE_COUNTER) && (ESP_IDF_VERSION_MAJOR == 5)
   bool enablePulseCounter();
-  inline bool pulseCounterAttached() { return _attached_pulse_unit != NULL; }
+  inline bool pulseCounterAttached() const { return _attached_pulse_unit != NULL; }
   void disablePulseCounter();
 #endif
 
   // Set the current position of the stepper - either in standstill or while moving
   void setCurrentPosition(int32_t new_pos);
 
+  // Get the future position of the stepper after all commands in queue are
+  // completed
+  int32_t getPositionAfterCommandsCompleted();
+
+  // Set the future position of the stepper after all commands in queue are
+  // completed
+  void setPositionAfterCommandsCompleted(int32_t new_pos);
+
+  int8_t directionAfterCommandsCompleted() const;
+
+  // ## Stepper queue running status
+  //
+  // When queue is running, any commands and steps submitted will be
+  // executed immediately.
+  //
+  // Unlike in FAS, the queue does not stop running when it is dry,
+  // so you need to stop queue manually if you don't need it in the
+  // running state.
+  bool isQueueRunning() const;
+  
   // ## Stepper running status
   // is true while the stepper is running
-  bool isRunning();
+  bool isRunning() const;
 
   void setAbsoluteSpeedLimit(uint16_t max_speed_in_ticks);
 
   // ### forwardStep() and backwardStep()
-  // forwardStep()/backwardstep() can be called, while stepper is not moving
-  // If stepper is moving, this is a no-op.
   // backwardStep() is a no-op, if no direction pin defined
   // It will immediately let the stepper perform one single step.
   // If blocking = true, then the routine will wait till isRunning() is false
-  void forwardStep(bool blocking = false);
-  void backwardStep(bool blocking = false);
+  int8_t forwardStep(bool blocking = false);
+  int8_t backwardStep(bool blocking = false);
 
-  // ### forceStop()
+  // ### stop()
   // Abruptly stop the running stepper.
   //
   // This command only places the STOP command into the queue, 
@@ -276,51 +292,22 @@ class FastQueueStepper {
   //    be drained fully or not. Should not be too large but still relevant
   //
   // forceStopAndNewPosition() empties 2 and 3.
-  // forceStop() only adds a new entry to 2 to indicate that no further queue
+  // stop() only adds a new entry to 2 to indicate that no further queue
   // processing should be done until the queue is started again with
   // startQueue();
-  void forceStop();
+  int8_t stop();
 
   // abruptly stop the running stepper without deceleration.
   //
   // Same as forceStop(), but completely empties the running queue allowing
   // for a near immediate stop.
   void forceStopAndNewPosition(int32_t new_pos);
+  
+#if defined(SUPPORT_ESP32_PULSE_COUNTER)
+  void forceStop();
+#endif
 
-  // ### Task planning
-  // The stepper task adds commands to the stepper queue until
-  // either at least two commands are planned, or the commands
-  // cover sufficient time into the future. Default value for that time is 20ms.
-  //
-  // The stepper task is cyclically executed every ~4ms.
-  // Especially for avr, the step interrupts puts a significant load on the uC,
-  // so the cyclical stepper task can even run for 2-3 ms. On top of that,
-  // other interrupts caused by the application could increase the load even
-  // further.
-  //
-  // Consequently, the forward planning should fill the queue for ideally two
-  // cycles, this means 8ms. This means, the default 20ms provide a sufficient
-  // margin and even a missed cycle is not an issue.
-  //
-  // The drawback of the 20ms is, that any change in speed/acceleration are
-  // added after those 20ms and for an application, requiring fast reaction
-  // times, this may impact the expected performance.
-  //
-  // Due to this the forward planning time can be adjusted with the following
-  // API call for each stepper individually.
-  //
-  // Attention:
-  // - This is only for advanced users: no error checking is implemented.
-  // - Only change the forward planning time, if the stepper is not running.
-  // - Too small values bear the risk of a stepper running at full speed
-  // suddenly stopping
-  //   due to lack of commands in the queue.
-  inline void setForwardPlanningTimeInMs(uint8_t ms) {
-    _forward_planning_in_ticks = ms;
-    _forward_planning_in_ticks *= TICKS_PER_S / 1000;  // ticks per ms
-  }
-
-  int8_t addQueueEntry(const struct stepper_command_s* cmd);
+  int8_t addQueueEntry(const stepper_command_s &cmd);
 
   // Return codes for addQueueEntry
   //    positive values mean, that caller should retry later
@@ -332,19 +319,15 @@ class FastQueueStepper {
 #define AQE_ERROR_TICKS_TOO_LOW -1
 #define AQE_ERROR_EMPTY_QUEUE_TO_START -2
 #define AQE_ERROR_NO_DIR_PIN_TO_TOGGLE -3
+#define AQE_ERROR_MOVE_TOO_LARGE -4
 
   // ### check functions for command queue being empty, full or running.
-  bool isQueueEmpty();
-  bool isQueueFull();
-
-  // Check if the queue is currently running (on) or not.
-  //
-  // Unlike in FAS, the queue does not stop running when it is dry,
-  // so you need to stop queue manually if you don't need it in the
-  // running state.
-  bool isQueueRunning();
+  bool isQueueEmpty() const;
+  bool isQueueFull() const;
 
   void startQueue();
+
+  void resetQueue();
 
   // ### functions to get the fill level of the queue
   //
@@ -352,56 +335,31 @@ class FastQueueStepper {
   // can be used. It sums up all ticks of the not yet processed commands.
   // For commands defining pauses, the summed up value is entry.ticks.
   // For commands with steps, the summed up value is entry.steps*entry.ticks
-  uint32_t ticksInQueue();
+  inline uint32_t ticksInQueue() const;
 
   // This function can be used to check, if the commands in the queue
   // will last for <min_ticks> ticks. This is again without the
   // currently processed command.
-  bool hasTicksInQueue(uint32_t min_ticks);
-
-  // This function allows to check the number of commands in the queue.
-  // This is including the currently processed command.
-  uint8_t queueEntries();
-
-  // Get the future position of the stepper after all commands in queue are
-  // completed
-  int32_t getPositionAfterCommandsCompleted();
-
-  // Set the future position of the stepper after all commands in queue are
-  // completed
-  void setPositionAfterCommandsCompleted(int32_t new_pos);
-
-  // These functions allow to detach and reAttach a step pin for other use.
-  // Pretty low level, use with care or not at all
-  void detachFromPin();
-  void reAttachToPin();
+  inline bool hasTicksInQueue(uint32_t min_ticks) const;
 
  private:
-  void performOneStep(bool count_up, bool blocking = false);
-#ifdef SUPPORT_EXTERNAL_DIRECTION_PIN
-  bool externalDirPinChangeCompletedIfNeeded();
-#endif
-  void updateAutoDisable();
-  void blockingWaitForForceStopComplete();
-  bool needAutoDisable();
-  bool agreeWithAutoDisable();
-  bool usesAutoEnablePin(uint8_t pin);
+  inline void setEnabled(bool enabled) { _enabled = enabled; }
+  int8_t performOneStep(bool count_up, bool blocking = false);
 
   FastQueueStepperEngine* _engine;
-  uint8_t _stepPin;
+
   uint8_t _dirPin;
   bool _dirHighCountsUp;
   bool _autoEnable;
-  uint8_t _enablePinLowActive;
-  uint8_t _enablePinHighActive;
-  uint8_t _queue_num;
+  bool _enabled;
+  uint8_t _enablePin;
+  bool _enablePinHighIsActive;
+  StepperQueue *_queue;
 
-  uint16_t _dir_change_delay_ticks;
+  uint32_t _dir_change_delay_ticks;
   uint32_t _on_delay_ticks;
-  uint16_t _off_delay_count;
-  uint16_t _auto_disable_delay_counter;
 
-  uint32_t _forward_planning_in_ticks;
+  int32_t _currentPosition;
 
 #if defined(SUPPORT_ESP32_PULSE_COUNTER) && (ESP_IDF_VERSION_MAJOR == 5)
   pcnt_unit_handle_t _attached_pulse_unit;

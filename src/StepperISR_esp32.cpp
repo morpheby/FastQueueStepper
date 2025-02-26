@@ -10,6 +10,7 @@ StepperQueue *StepperQueue::getFreeQueue() {
     if (fas_queue[i].isConnected()) continue;
     return &fas_queue[i];
   }
+  return NULL;
 }
 
 void StepperQueue::connect(uint8_t step_pin, FastQueueStepperEngine *engine) {

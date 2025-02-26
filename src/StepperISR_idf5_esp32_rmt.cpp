@@ -3,10 +3,6 @@
 #include "StepperISR.h"
 #if defined(HAVE_ESP32_RMT) && (ESP_IDF_VERSION_MAJOR == 5)
 
-// #define TEST_MODE
-
-#include "fas_arch/test_probe.h"
-
 struct queue_command_encoder_t {
   rmt_encoder_t base;
   rmt_queue_command_t currentQueueEntry {
@@ -25,9 +21,9 @@ static void change_direction_and_continue_queue_fn(void *pvParameter1, uint32_t 
   q->startQueue();
 }
 
-static bool IRAM_ATTR queue_done(rmt_channel_handle_t tx_chan,
-                                 const rmt_tx_done_event_data_t *edata,
-                                 void *user_ctx) {
+bool IRAM_ATTR fas_rmt_queue_done(rmt_channel_handle_t tx_chan,
+                                  const rmt_tx_done_event_data_t *edata,
+                                  void *user_ctx) {
   StepperQueue *q = (StepperQueue *)user_ctx;
   BaseType_t xHigherPriorityTaskWoken = pdFALSE;
   fasDisableInterrupts();
@@ -65,12 +61,21 @@ static size_t encode_current_command(queue_command_encoder_t *queue_command_enco
     uint16_t duration = hasSteps != 0
       ? (queue_command_encoder->currentQueueEntry.ticks + queue_command_encoder->r) / queue_command_encoder->currentQueueEntry.steps
       : queue_command_encoder->currentQueueEntry.ticks;
+    
+    if (duration == 0) {
+      // This is a no-op, skip it
+      queue_command_encoder->r = 0;
+      queue_command_encoder->ticksDone += 1;
+      continue;
+    }
+
+    uint16_t halfDuration = duration >> 1, remainingDuration = duration - halfDuration;
 
     rmt_symbol_word_t s = {
-      .level0 = hasSteps ? 1 : 0,
-      .duration0 = duration / 2,
+      .duration0 = halfDuration,
+      .level0 = hasSteps ? (uint16_t) 1 : (uint16_t) 0,
+      .duration1 = remainingDuration,
       .level1 = 0,
-      .duration1 = duration - (duration / 2),
     };
 
     symbolsEncoded += queue_command_encoder->copy_encoder->encode(queue_command_encoder->copy_encoder, tx_channel, &s, sizeof(rmt_symbol_word_t), &session_state);
@@ -360,7 +365,7 @@ void StepperQueue::connect_rmt() {
   esp_err_t rc = rmt_new_tx_channel(&config, &channel);
   ESP_ERROR_CHECK_WITHOUT_ABORT(rc);
 
-  rmt_tx_event_callbacks_t callbacks = {.on_trans_done = queue_done};
+  rmt_tx_event_callbacks_t callbacks = {.on_trans_done = fas_rmt_queue_done};
   rmt_tx_register_event_callbacks(channel, &callbacks, this);
   
   _tx_encoder = encoder_create();
@@ -461,6 +466,8 @@ bool StepperQueue::feedRmt() {
   _cmdWriteIdx = (_cmdWriteIdx + 1) % RMT_TX_QUEUE_DEPTH;
 
   fasEnableInterrupts();
+
+  return true;
 }
 
 void StepperQueue::forceStop_rmt() {

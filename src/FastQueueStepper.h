@@ -104,7 +104,7 @@ class FastQueueStepperEngine {
   void setDebugLed(uint8_t ledPin);
 
   /* This should be only called from ISR or stepper task. So do not call it */
-  void manageSteppers();
+  virtual void manageSteppers();
 
  private:
   void setStepperDirectionPin(FastQueueStepper *stepper, uint8_t dir_pin);
@@ -169,7 +169,7 @@ class FastQueueStepper {
  public:
   // ## Step Pin
   // step pin is defined at creation. Here can retrieve the pin
-  inline uint8_t getStepPin() const { _queue->getStepPin(); }
+  uint8_t getStepPin() const;
 
   // ## Direction Pin
   // if direction pin is connected, call this function.
@@ -265,6 +265,7 @@ class FastQueueStepper {
   // is true while the stepper is running
   bool isRunning() const;
 
+  // FIXME: This is not used at the moment anywhere. Absolute speed is unchecked
   void setAbsoluteSpeedLimit(uint16_t max_speed_in_ticks);
 
   // ### forwardStep() and backwardStep()

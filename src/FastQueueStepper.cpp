@@ -249,7 +249,8 @@ FastQueueStepper* FastQueueStepperEngine::stepperConnectToPin(uint8_t step_pin)
 
   FastQueueStepper *s = NULL;
   for (int stepperIdx = 0; stepperIdx < MAX_STEPPER; ++stepperIdx) {
-    for (int j = 0; j < MAX_STEPPER; ++j) if (&fas_stepper[stepperIdx] == _steppers[j]) break;
+    int j;
+    for (j = 0; j < MAX_STEPPER; ++j) if (&fas_stepper[stepperIdx] == _steppers[j]) break;
     if (j != MAX_STEPPER) continue;
     s = &fas_stepper[stepperIdx];
     break;
@@ -655,4 +656,8 @@ bool FastQueueStepper::isQueueRunning() const {
 
 int8_t FastQueueStepper::directionAfterCommandsCompleted() const {
   return _queue->directionAfterLastEntry();
+}
+
+uint8_t FastQueueStepper::getStepPin() const {
+  return _queue->getStepPin();
 }

@@ -3,6 +3,8 @@
 
 #define TICKS_FOR_STOPPED_MOTOR 0xffffffff
 
+#include <stdint.h>
+
 // Low level stepper motor command.
 //
 // You can add these using the addQueueEntry method.

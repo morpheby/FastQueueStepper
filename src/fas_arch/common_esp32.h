@@ -32,8 +32,6 @@
 // Esp32 timing definition
 #define TICKS_PER_S 16000000L
 #define MIN_CMD_TICKS (TICKS_PER_S / 5000)
-#define MIN_DIR_DELAY_US (MIN_CMD_TICKS / (TICKS_PER_S / 1000000))
-#define MAX_DIR_DELAY_US (65535 / (TICKS_PER_S / 1000000))
 #define DELAY_MS_BASE 4
 #define US_TO_TICKS(u32) \
   (((uint32_t)u32) / (TICKS_PER_S / 1000000))
@@ -51,9 +49,9 @@
 // have adjustable stepper task rate
 #define SUPPORT_TASK_RATE_CHANGE
 
-#define LL_TOGGLE_PIN(dirPin)                  \
+#define LL_SET_PIN(dirPin, level)                     \
   gpio_ll_set_level(&GPIO, (gpio_num_t)dirPin, \
-                    gpio_ll_get_level(&GPIO, (gpio_num_t)dirPin) ^ 1)
+                    level)
 
 //==========================================================================
 // determine, if driver type selection should be supported

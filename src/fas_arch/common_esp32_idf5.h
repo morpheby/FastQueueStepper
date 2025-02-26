@@ -141,6 +141,12 @@
 #define FAS_RMT_MEM(channel) ((uint32_t *)RMTMEM.chan[channel].data32)
 #endif
 
+// on espidf need to use critical section as a safer variant. 
+//
+// For porting back to other platforms keep in mind that those should be reentrant
+void fasDisableInterrupts();
+void fasEnableInterrupts();
+
 // in order to avoid spikes, first set the value and then make an output
 // esp32 idf5 does not like this approach => output first, then value
 #define PIN_OUTPUT(pin, value)  \

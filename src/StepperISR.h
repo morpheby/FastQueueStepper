@@ -17,8 +17,8 @@ struct queue_entry {
 };
 
 #define QUEUE_ENTRY_MAX_TICKS ((uint16_t)0xFFFE)
-#define QUEUE_ENTRY_DIRECTION_POSITIVE (0x0000)
-#define QUEUE_ENTRY_DIRECTION_NEGATIVE (0xFFFF)
+#define QUEUE_ENTRY_DIRECTION_POSITIVE ((uint16_t)0x0000)
+#define QUEUE_ENTRY_DIRECTION_NEGATIVE ((uint16_t)0xFFFF)
 
 #ifdef SUPPORT_ESP32_RMT
 struct rmt_queue_command_t {
@@ -123,7 +123,7 @@ class StepperQueue {
 
   inline bool readQueue(queue_entry &e) {
     fasDisableInterrupts();
-    if (isQueueEmpty) return false;
+    if (isQueueEmpty()) return false;
     e = queue[queueReadIdx];
     queueReadIdx = (queueReadIdx + 1) % QUEUE_LEN;
     fasEnableInterrupts();
@@ -145,9 +145,9 @@ class StepperQueue {
   rmt_queue_command_t rmtCmdStorage[RMT_TX_QUEUE_DEPTH];
   uint16_t _cmdWriteIdx;
 
-  friend bool IRAM_ATTR queue_done(rmt_channel_handle_t tx_chan,
-                                   const rmt_tx_done_event_data_t *edata,
-                                   void *user_ctx);
+  friend bool IRAM_ATTR fas_rmt_queue_done(rmt_channel_handle_t tx_chan,
+                                           const rmt_tx_done_event_data_t *edata,
+                                           void *user_ctx);
   friend void rmt_feeder_task_fn(void *arg);
 
   bool isConnected_rmt() const;

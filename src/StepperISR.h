@@ -67,23 +67,15 @@ class StepperQueue {
   void resetQueue();
 
   inline int8_t directionChangePending() const {
-    fasDisableInterrupts();
-    int8_t r = _dirChangePending;
-    fasEnableInterrupts();
-    return r;
+    return _dirChangePending;
   }
 
   inline int8_t currentDirection() const {
-    fasDisableInterrupts();
-    int8_t r = _currentDirection;
-    fasEnableInterrupts();
-    return r;
+    return _currentDirection;
   }
 
   inline void setDirection(int8_t dir) {
-    fasDisableInterrupts();
     _currentDirection = dir;
-    fasEnableInterrupts();
   }
 
 #if SUPPORT_UNSAFE_ABS_SPEED_LIMIT_SETTING == 1

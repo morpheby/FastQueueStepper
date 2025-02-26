@@ -93,5 +93,6 @@ void StepperQueue::_initVars() {
 #endif
 #if defined(SUPPORT_ESP32_RMT)
   _rmtQueueRunning = false;
+  _cmdWriteIdx = 0;
 #endif
 }

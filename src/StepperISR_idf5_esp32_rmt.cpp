@@ -100,16 +100,7 @@ static size_t encode_command(rmt_encoder_t *encoder, rmt_channel_handle_t tx_cha
   queue_command_encoder_t *queue_command_encoder = __containerof(encoder, queue_command_encoder_t, base);
   size_t symbolsEncoded = 0;
 
-  if (data_size < sizeof(rmt_queue_command_t)) {
-    printf("Invalid RMT command encoded\n");
-    *ret_state = RMT_ENCODING_RESET;
-    queue_command_encoder->currentQueueEntry.steps = 0;
-    queue_command_encoder->currentQueueEntry.ticks = 0;
-    queue_command_encoder->r = 0;
-    queue_command_encoder->ticksDone = 0;
-    queue_command_encoder->copy_encoder->reset(queue_command_encoder->copy_encoder);
-    return symbolsEncoded;
-  }
+  assert(data_size >= sizeof(rmt_queue_command_t));
 
   {
     rmt_encode_state_t session_state = RMT_ENCODING_RESET;
@@ -153,6 +144,8 @@ static esp_err_t encoder_reset(rmt_encoder_t *encoder) {
 
 rmt_encoder_handle_t encoder_create() {
   queue_command_encoder_t *queue_encoder = (queue_command_encoder_t *) rmt_alloc_encoder_mem(sizeof(queue_command_encoder_t));
+  queue_encoder->base.del = encoder_delete;
+  queue_encoder->base.reset = encoder_reset;
   rmt_copy_encoder_config_t copy_encoder_config = {};
   rmt_new_copy_encoder(&copy_encoder_config, &queue_encoder->copy_encoder);
 
@@ -379,7 +372,7 @@ void StepperQueue::disconnect_rmt() {
   }
   rmt_del_channel(channel);
   channel = NULL;
-  encoder_delete(_tx_encoder);
+  _tx_encoder->del(_tx_encoder);
   _tx_encoder = NULL;
 }
 
@@ -460,7 +453,7 @@ bool StepperQueue::feedRmt() {
   };
   
   _rmtQueueRunning = true;
-  rmt_transmit(channel, _tx_encoder, &rmtCmdStorage[_cmdWriteIdx], sizeof(rmt_queue_command_t), &tx_config);
+  // rmt_transmit(channel, _tx_encoder, &rmtCmdStorage[_cmdWriteIdx], sizeof(rmt_queue_command_t), &tx_config);
   currentPosition += entry.steps * currentDirection();
 
   _cmdWriteIdx = (_cmdWriteIdx + 1) % RMT_TX_QUEUE_DEPTH;

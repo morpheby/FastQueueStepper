@@ -336,12 +336,12 @@ class FastQueueStepper {
   // can be used. It sums up all ticks of the not yet processed commands.
   // For commands defining pauses, the summed up value is entry.ticks.
   // For commands with steps, the summed up value is entry.steps*entry.ticks
-  inline uint32_t ticksInQueue() const;
+  uint32_t ticksInQueue() const;
 
   // This function can be used to check, if the commands in the queue
   // will last for <min_ticks> ticks. This is again without the
   // currently processed command.
-  inline bool hasTicksInQueue(uint32_t min_ticks) const;
+  bool hasTicksInQueue(uint32_t min_ticks) const;
 
  private:
   inline void setEnabled(bool enabled) { _enabled = enabled; }

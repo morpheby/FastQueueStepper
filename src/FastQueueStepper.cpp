@@ -502,7 +502,7 @@ void FastQueueStepper::setEnablePin(uint8_t enablePin,
   _engine->setStepperEnablePin(this, enablePin);
   
   if (enablePin & PIN_EXTERNAL_FLAG == 0) {
-    pinMode(dirPin, OUTPUT);
+    pinMode(enablePin, OUTPUT);
   }
   
   _enablePin = enablePin;

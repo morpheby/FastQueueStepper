@@ -98,13 +98,6 @@ void FastQueueStepperEngine::changeDirectionIfNeeded() {
 
     if (wantedDirection == 0) continue; // This stepper doesn't need direction change
 
-    if (wantedDirection == currentDirection) {
-      // The stepper has not been updated or other internal inconsistency.
-      // Just start it directly
-      stepper->_queue->startQueue();
-      continue;
-    }
-
     bool changeAllowed = true;
 
     // Use circular linked list to agree with other steppers in chain.
@@ -490,6 +483,10 @@ void FastQueueStepper::setDirectionPin(uint8_t dirPin, bool dirHighCountsUp,
   _engine->setStepperDirectionPin(this, dirPin);
   _dirPin = dirPin;
   _dirHighCountsUp = dirHighCountsUp;
+
+  if (dirPin & PIN_EXTERNAL_FLAG == 0) {
+    pinMode(dirPin, OUTPUT);
+  }
   
   _engine->changeDirectionIfNeeded();
   
@@ -503,6 +500,10 @@ void FastQueueStepper::setDirectionPin(uint8_t dirPin, bool dirHighCountsUp,
 void FastQueueStepper::setEnablePin(uint8_t enablePin,
                                     bool highIsActive) {
   _engine->setStepperEnablePin(this, enablePin);
+  
+  if (enablePin & PIN_EXTERNAL_FLAG == 0) {
+    pinMode(dirPin, OUTPUT);
+  }
   
   _enablePin = enablePin;
   _enablePinHighIsActive = highIsActive;

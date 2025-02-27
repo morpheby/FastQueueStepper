@@ -313,9 +313,8 @@ int8_t FastQueueStepper::addQueueEntry(const stepper_command_s &cmd) {
   int result = AQE_OK;
 
   if (cmd.steps == 0 && cmd.ticks == 0) {
-    // STOP command
     queue_entry e {
-      .cmd = QueueCommand::STOP,
+      .cmd = QueueCommand::STEP,
       .steps = 0,
       .ticks = 0,
     };
@@ -433,19 +432,19 @@ int8_t FastQueueStepper::addQueueEntry(const stepper_command_s &cmd) {
     uint32_t ticksDone = 0, ticksRemainder = 0;
     uint32_t stepsDone = 0, stepsRemainder = 0;
 
-    while (ticksDone < cmd.ticks || stepsDone < cmd.steps) {
+    while (ticksDone < cmd.ticks || stepsDone < std::abs(cmd.steps)) {
       uint32_t ticksInEntry = (cmd.ticks + ticksRemainder) / stepCommandCount;
-      uint32_t stepsInEntry = (cmd.steps + stepsRemainder) / stepCommandCount;
+      uint32_t stepsInEntry = (std::abs(cmd.steps) + stepsRemainder) / stepCommandCount;
       ticksRemainder = (cmd.ticks + ticksRemainder) % stepCommandCount;
-      stepsRemainder = (cmd.steps + stepsRemainder) % stepCommandCount;
+      stepsRemainder = (std::abs(cmd.steps) + stepsRemainder) % stepCommandCount;
 
       assert(ticksInEntry <= QUEUE_ENTRY_MAX_TICKS);
       assert(stepsInEntry <= UINT8_MAX);
       
       queue_entry e {
         .cmd = QueueCommand::STEP,
-        .steps = (uint8_t) std::abs(cmd.steps),
-        .ticks = (uint16_t) cmd.ticks,
+        .steps = (uint8_t) stepsInEntry,
+        .ticks = (uint16_t) ticksInEntry,
       };
 
       result = _queue->addQueueEntry(e);
@@ -655,7 +654,7 @@ uint32_t FastQueueStepper::ticksInQueue() const {
 }
 
 bool FastQueueStepper::hasTicksInQueue(uint32_t min_ticks) const {
-  return _queue->hasTicksInQueue(min_ticks);
+  return _queue->hasTicksInQueue(min_ticks) >= min_ticks;
 }
 
 

@@ -88,19 +88,11 @@ static size_t encode_command(rmt_encoder_t *encoder, rmt_channel_handle_t tx_cha
 
   assert(data_size >= sizeof(rmt_queue_command_t));
 
-  {
-    rmt_encode_state_t session_state = RMT_ENCODING_RESET;
-    symbolsEncoded += encode_current_command(queue_command_encoder, tx_channel, &session_state);
-    if (session_state & RMT_ENCODING_MEM_FULL) {
-      *ret_state = RMT_ENCODING_MEM_FULL;
-      return symbolsEncoded;
-    }
+  if (queue_command_encoder->currentQueueEntry.ticks <= queue_command_encoder->ticksDone) {
+    const rmt_queue_command_t &q = *(rmt_queue_command_t *) primary_data;
+    queue_command_encoder->currentQueueEntry = q;
+    queue_command_encoder->ticksDone = 0;
   }
-
-  // Last symbol finished, load a new one
-  const rmt_queue_command_t &q = *(rmt_queue_command_t *) primary_data;
-  queue_command_encoder->currentQueueEntry = q;
-  queue_command_encoder->ticksDone = 0;
 
   {
     rmt_encode_state_t session_state = RMT_ENCODING_RESET;
@@ -219,9 +211,6 @@ void StepperQueue::startQueue_rmt() {
   if (channel == NULL) {
     return;
   }
-
-  // Confirm that we actually need this
-  if (_isRunning) return;
 
   // Check direction change request
   fasDisableInterrupts();

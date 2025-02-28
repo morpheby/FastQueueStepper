@@ -32,7 +32,8 @@ uint32_t StepperQueue::hasTicksInQueue(uint32_t min_ticks) const {
   uint32_t ticks = 0;
   for (uint16_t rp = queueReadIdx; rp != queueWriteIdx && ticks < min_ticks; rp = (rp + 1) % QUEUE_LEN) {
     const queue_entry &entry = queue[rp];
-    ticks += entry.ticks;
+    if (entry.cmd == QueueCommand::STEP)
+      ticks += entry.ticks;
   }
 
   fasEnableInterrupts();

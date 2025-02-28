@@ -102,6 +102,11 @@ static size_t encode_command(rmt_encoder_t *encoder, rmt_channel_handle_t tx_cha
       return symbolsEncoded;
     }
   }
+  
+  queue_command_encoder->currentQueueEntry.ticks = 0;
+  queue_command_encoder->currentQueueEntry.steps = 0;
+  queue_command_encoder->ticksDone = 0;
+
   *ret_state = RMT_ENCODING_COMPLETE;
 
   return symbolsEncoded;
@@ -117,6 +122,11 @@ static esp_err_t encoder_delete(rmt_encoder_t *encoder) {
 static esp_err_t encoder_reset(rmt_encoder_t *encoder) {
   queue_command_encoder_t *queue_command_encoder = __containerof(encoder, queue_command_encoder_t, base);
   rmt_encoder_reset(queue_command_encoder->copy_encoder);
+  
+  queue_command_encoder->currentQueueEntry.ticks = 0;
+  queue_command_encoder->currentQueueEntry.steps = 0;
+  queue_command_encoder->ticksDone = 0;
+
   return ESP_OK;
 }
 
@@ -141,7 +151,7 @@ void rmt_feeder_task_fn(void *arg) {
     }
     if (nothingToDo) {
       // If queue not running, or queue was not fed just wait
-      ulTaskNotifyTake(true, pdMS_TO_TICKS(10));
+      ulTaskNotifyTake(true, pdMS_TO_TICKS(4));
     }
   }
 }
@@ -212,8 +222,17 @@ void StepperQueue::startQueue_rmt() {
     return;
   }
 
+  {
+    // Clear any STOP commands
+    queue_entry entry;
+    while (peekQueue(entry) && entry.cmd == QueueCommand::STOP) {
+      readQueue(entry);
+    }
+  }
+
   // Check direction change request
   fasDisableInterrupts();
+  _tx_encoder->reset(_tx_encoder);
   {
     int8_t directionChange = directionChangePending();
     if (directionChange != 0 &&
@@ -239,8 +258,6 @@ void StepperQueue::startQueue_rmt() {
 }
 
 bool StepperQueue::feedRmt() {
-  _tx_encoder->reset(_tx_encoder);
-
   rmt_transmit_config_t tx_config {
     .loop_count = 0,             /*!< Specify the times of transmission in a loop, -1 means transmitting in an infinite loop */
     .flags {                     /*!< Transmit specific config flags */

@@ -283,6 +283,10 @@ bool StepperQueue::feedRmt() {
     _dirChangePending = entry.ticks == QUEUE_ENTRY_DIRECTION_NEGATIVE ? -1 : 1;
     // TODO: Probably weird and unobvious choice. Think about it later
     fasEnableInterrupts();
+    if (_rmtCommandsQueued == 0) {
+      // No movement happening, so trigger change now directly
+      startQueue();
+    }
     return false;
   } else if (entry.cmd == QueueCommand::STOP) {
     // Starve the queue till it is stopped

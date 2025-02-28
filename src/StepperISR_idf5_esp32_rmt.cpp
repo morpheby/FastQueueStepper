@@ -305,11 +305,16 @@ bool StepperQueue::feedRmt() {
 
   _rmtCommandsQueued += 1;
   
+  fasEnableInterrupts();
+
   if (rmt_transmit(channel, _tx_encoder, &rmtCmdStorage[_cmdWriteIdx], sizeof(rmt_queue_command_t), &tx_config) != ESP_OK) {
+    fasDisableInterrupts();
     _rmtCommandsQueued -= 1;
     fasEnableInterrupts();
     return false;
   }
+  fasDisableInterrupts();
+
   currentPosition += ((int32_t)(uint16_t)entry.steps) * currentDirection();
 
   _cmdWriteIdx = (_cmdWriteIdx + 1) % (RMT_TX_QUEUE_DEPTH+1);

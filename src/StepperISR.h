@@ -67,7 +67,7 @@ class StepperQueue {
   void resetQueue();
 
   inline int8_t directionChangePending() const {
-    return _rmtHasCommands ? 0 : _dirChangePending;
+    return _rmtCommandsQueued > 0 ? 0 : _dirChangePending;
   }
 
   inline int8_t currentDirection() const {
@@ -138,8 +138,8 @@ class StepperQueue {
   int8_t _dirChangePending;
   rmt_encoder_handle_t _tx_encoder;
   static TaskHandle_t _rmtFeederTask;
-  rmt_queue_command_t rmtCmdStorage[RMT_TX_QUEUE_DEPTH];
-  bool _rmtHasCommands;
+  rmt_queue_command_t rmtCmdStorage[RMT_TX_QUEUE_DEPTH+1];
+  uint32_t _rmtCommandsQueued;
   uint16_t _cmdWriteIdx;
 
   friend bool IRAM_ATTR fas_rmt_queue_done_fn(rmt_channel_handle_t tx_chan,

@@ -28,7 +28,7 @@ bool IRAM_ATTR fas_rmt_queue_done_fn(rmt_channel_handle_t tx_chan,
                                   const rmt_tx_done_event_data_t *edata,
                                   void *user_ctx) {
   StepperQueue *q = (StepperQueue *)user_ctx;
-  q->_rmtHasCommands = false;
+  q->_rmtCommandsQueued -= 1;
   BaseType_t xHigherPriorityTaskWoken = pdFALSE;
   xTimerPendFunctionCallFromISR(fas_rmt_queue_done, q, 0, &xHigherPriorityTaskWoken);
   return xHigherPriorityTaskWoken == pdTRUE;
@@ -226,7 +226,7 @@ void StepperQueue::startQueue_rmt() {
 
   fasDisableInterrupts();
 
-  if (!_rmtHasCommands) {
+  if (_rmtCommandsQueued == 0) {
     _tx_encoder->reset(_tx_encoder);
   }
 
@@ -239,7 +239,7 @@ void StepperQueue::startQueue_rmt() {
   }
 
   // Check direction change request
-  if (!_rmtHasCommands) {
+  if (_rmtCommandsQueued == 0) {
     if (_dirChangePending != 0 &&
         _dirChangePending != currentDirection()) {
       fasEnableInterrupts();
@@ -299,12 +299,16 @@ bool StepperQueue::feedRmt() {
     .ticks = entry.ticks,
   };
 
-  _rmtHasCommands = true;
+  _rmtCommandsQueued += 1;
   
-  rmt_transmit(channel, _tx_encoder, &rmtCmdStorage[_cmdWriteIdx], sizeof(rmt_queue_command_t), &tx_config);
+  if (rmt_transmit(channel, _tx_encoder, &rmtCmdStorage[_cmdWriteIdx], sizeof(rmt_queue_command_t), &tx_config) != ESP_OK) {
+    _rmtCommandsQueued -= 1;
+    fasEnableInterrupts();
+    return false
+  }
   currentPosition += ((int32_t)(uint16_t)entry.steps) * currentDirection();
 
-  _cmdWriteIdx = (_cmdWriteIdx + 1) % RMT_TX_QUEUE_DEPTH;
+  _cmdWriteIdx = (_cmdWriteIdx + 1) % (RMT_TX_QUEUE_DEPTH+1);
 
   fasEnableInterrupts();
 

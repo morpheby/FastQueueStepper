@@ -92,7 +92,7 @@ void FastQueueStepperEngine::changeDirectionIfNeeded() {
     if (stepper->getDirectionPin() == PIN_UNDEFINED) continue;
 
     int8_t currentDirection = stepper->_queue->currentDirection() * (stepper->directionPinHighCountsUp() ? 1 : -1);
-    int8_t wantedDirection = stepper->isQueueRunning() 
+    int8_t wantedDirection = stepper->isQueueRunning()
       ? stepper->_queue->directionChangePending() * (stepper->directionPinHighCountsUp() ? 1 : -1)
       : currentDirection;
 
@@ -119,7 +119,6 @@ void FastQueueStepperEngine::changeDirectionIfNeeded() {
       changeAllowed = false;
       break;
     }
-    fasEnableInterrupts();
 
     if (!changeAllowed) continue;
 
@@ -129,7 +128,12 @@ void FastQueueStepperEngine::changeDirectionIfNeeded() {
       LL_SET_PIN(stepper->getDirectionPin(), wantedDirection > 0 ? 1 : 0);
     }
 
-    stepper->_queue->startQueue();
+    stepper->_queue->setDirection(wantedDirection * (stepper->directionPinHighCountsUp() ? 1 : -1));
+
+    if (stepper->isQueueRunning()) {
+      // Queue is awaiting direction change, so ping it
+      stepper->_queue->startQueue();
+    }
 
     // Use circular linked list to update other steppers in chain.
     for (int otherStepperIdx = sharedDirectionPinList[stepperIdx];
@@ -144,6 +148,7 @@ void FastQueueStepperEngine::changeDirectionIfNeeded() {
 
       otherStepper->_queue->startQueue();
     }
+    fasEnableInterrupts();
   }
 }
 
@@ -155,7 +160,7 @@ void FastQueueStepperEngine::autoEnableDisableIfNeeded() {
     if (stepper->getEnablePin() == PIN_UNDEFINED) continue;
 
     bool neededStatus = (!stepper->enablePinHighIsActive()) ^ (stepper->isAutoEnable()
-                                                               ? (!stepper->_queue->isQueueEmpty())
+                                                               ? (!stepper->isQueueRunning())
                                                                : stepper->isEnabled());
 
     bool changeAllowed = true;
@@ -169,7 +174,7 @@ void FastQueueStepperEngine::autoEnableDisableIfNeeded() {
       if (otherStepper == NULL) continue;
       
       bool otherNeededStatus = (!otherStepper->enablePinHighIsActive()) ^ (otherStepper->isAutoEnable()
-                                                                           ? (!otherStepper->_queue->isQueueEmpty())
+                                                                           ? (!otherStepper->isQueueRunning())
                                                                            : otherStepper->isEnabled());
       bool otherWillBeEnabled = (!otherStepper->enablePinHighIsActive()) ^ neededStatus;
 
@@ -377,17 +382,8 @@ int8_t FastQueueStepper::addQueueEntry(const stepper_command_s &cmd) {
     delay = std::max(_on_delay_ticks, delay);
     
     if (delay == 0 && isQueueRunning()) {
-      // Since queue is already running and no delay is given, we need to force-enable stepper
-      fasDisableInterrupts(); // Don't allow stepper to remove this command before we have it enabled
-      queue_entry e {
-        .cmd = QueueCommand::STEP,
-        .steps = 0,
-        .ticks = 0,
-      };
-      result = _queue->addQueueEntry(e);
+      // Since queue is already running and no delay is given, we need to enable stepper before adding cmds
       _engine->autoEnableDisableIfNeeded();
-      fasEnableInterrupts();
-      if (result != AQE_OK) return result;
       // By this point the stepper could be not enabled only if other stepper is blocking it
       if (!isEnabled()) {
         return AQE_WAIT_FOR_ENABLE_PIN_ACTIVE;

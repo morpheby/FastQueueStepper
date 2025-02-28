@@ -130,7 +130,6 @@ class StepperQueue {
 
 #if defined(SUPPORT_ESP32)
   bool _isRunning;
-  bool _nextCommandIsPrepared;
 #endif
 
 #ifdef SUPPORT_ESP32_RMT
@@ -140,11 +139,12 @@ class StepperQueue {
   rmt_encoder_handle_t _tx_encoder;
   static TaskHandle_t _rmtFeederTask;
   rmt_queue_command_t rmtCmdStorage[RMT_TX_QUEUE_DEPTH];
+  bool _rmtHasCommands;
   uint16_t _cmdWriteIdx;
 
-  friend bool IRAM_ATTR fas_rmt_queue_done(rmt_channel_handle_t tx_chan,
-                                           const rmt_tx_done_event_data_t *edata,
-                                           void *user_ctx);
+  friend bool IRAM_ATTR fas_rmt_queue_done_fn(rmt_channel_handle_t tx_chan,
+                                              const rmt_tx_done_event_data_t *edata,
+                                              void *user_ctx);
   friend void rmt_feeder_task_fn(void *arg);
 
   bool isConnected_rmt() const;

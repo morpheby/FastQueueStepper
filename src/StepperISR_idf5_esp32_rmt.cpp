@@ -16,22 +16,21 @@ struct queue_command_encoder_t {
   rmt_encoder_t *copy_encoder;
 };
 
-static void change_direction_and_continue_queue_fn(void *pvParameter1, uint32_t ulParameter2) {
+static void fas_rmt_queue_done(void *pvParameter1, uint32_t ulParameter2) {
   StepperQueue *q = (StepperQueue *)pvParameter1;
-  q->startQueue();
+  if (q->directionChangePending() != 0 && q->isRunning()) {
+    // Restart queue while changing direction
+    q->startQueue();
+  }
 }
 
-bool IRAM_ATTR fas_rmt_queue_done(rmt_channel_handle_t tx_chan,
+bool IRAM_ATTR fas_rmt_queue_done_fn(rmt_channel_handle_t tx_chan,
                                   const rmt_tx_done_event_data_t *edata,
                                   void *user_ctx) {
   StepperQueue *q = (StepperQueue *)user_ctx;
+  q->_rmtHasCommands = false;
   BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-  fasDisableInterrupts();
-  if (q->directionChangePending() != 0) {
-    // Next commands require change of direction, so wake up
-    xTimerPendFunctionCallFromISR(change_direction_and_continue_queue_fn, q, 0, &xHigherPriorityTaskWoken);
-  }
-  fasEnableInterrupts();
+  xTimerPendFunctionCallFromISR(fas_rmt_queue_done, q, 0, &xHigherPriorityTaskWoken);
   return xHigherPriorityTaskWoken == pdTRUE;
 }
  
@@ -145,7 +144,10 @@ void rmt_feeder_task_fn(void *arg) {
   while (true) {
     bool nothingToDo = true;
     for (int i = 0; i < NUM_QUEUES; ++i) {
-      if (fas_queue[i]._isRunning && fas_queue[i]._dirChangePending == 0 && fas_queue[i].feedRmt()) {
+      fasDisableInterrupts();
+      bool shouldFeed = fas_queue[i]._isRunning && fas_queue[i]._dirChangePending == 0;
+      fasEnableInterrupts();
+      if (shouldFeed && fas_queue[i].feedRmt()) {
         nothingToDo = false;
       }
     }
@@ -195,7 +197,7 @@ void StepperQueue::connect_rmt() {
   esp_err_t rc = rmt_new_tx_channel(&config, &channel);
   ESP_ERROR_CHECK_WITHOUT_ABORT(rc);
 
-  rmt_tx_event_callbacks_t callbacks = {.on_trans_done = fas_rmt_queue_done};
+  rmt_tx_event_callbacks_t callbacks = {.on_trans_done = fas_rmt_queue_done_fn};
   rmt_tx_register_event_callbacks(channel, &callbacks, this);
   
   _tx_encoder = encoder_create();
@@ -222,7 +224,11 @@ void StepperQueue::startQueue_rmt() {
     return;
   }
 
-  {
+  fasDisableInterrupts();
+
+  if (!_isRunning) {
+    _tx_encoder->reset(_tx_encoder);
+    
     // Clear any STOP commands
     queue_entry entry;
     while (peekQueue(entry) && entry.cmd == QueueCommand::STOP) {
@@ -231,8 +237,6 @@ void StepperQueue::startQueue_rmt() {
   }
 
   // Check direction change request
-  fasDisableInterrupts();
-  _tx_encoder->reset(_tx_encoder);
   {
     int8_t directionChange = directionChangePending();
     if (directionChange != 0 &&
@@ -293,6 +297,8 @@ bool StepperQueue::feedRmt() {
     .steps = entry.steps,
     .ticks = entry.ticks,
   };
+
+  _rmtHasCommands = true;
   
   rmt_transmit(channel, _tx_encoder, &rmtCmdStorage[_cmdWriteIdx], sizeof(rmt_queue_command_t), &tx_config);
   currentPosition += ((int32_t)(uint16_t)entry.steps) * currentDirection();

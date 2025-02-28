@@ -304,7 +304,7 @@ bool StepperQueue::feedRmt() {
   if (rmt_transmit(channel, _tx_encoder, &rmtCmdStorage[_cmdWriteIdx], sizeof(rmt_queue_command_t), &tx_config) != ESP_OK) {
     _rmtCommandsQueued -= 1;
     fasEnableInterrupts();
-    return false
+    return false;
   }
   currentPosition += ((int32_t)(uint16_t)entry.steps) * currentDirection();
 

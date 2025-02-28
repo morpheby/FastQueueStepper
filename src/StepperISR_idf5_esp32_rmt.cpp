@@ -71,7 +71,9 @@ static size_t encode_current_command(queue_command_encoder_t *queue_command_enco
 
     // Symbol ok, continue
 
-    queue_command_encoder->r = (queue_command_encoder->currentQueueEntry.ticks + queue_command_encoder->r) % queue_command_encoder->currentQueueEntry.steps;
+    queue_command_encoder->r = hasSteps
+      ? (queue_command_encoder->currentQueueEntry.ticks + queue_command_encoder->r) % queue_command_encoder->currentQueueEntry.steps
+      : queue_command_encoder->r;
     queue_command_encoder->ticksDone += duration;
   }
 

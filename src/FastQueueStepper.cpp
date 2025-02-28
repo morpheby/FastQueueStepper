@@ -132,7 +132,9 @@ void FastQueueStepperEngine::changeDirectionIfNeeded() {
 
     if (stepper->isQueueRunning()) {
       // Queue is awaiting direction change, so ping it
+      fasEnableInterrupts();
       stepper->_queue->startQueue();
+      fasDisableInterrupts();
     }
 
     // Use circular linked list to update other steppers in chain.
@@ -148,6 +150,7 @@ void FastQueueStepperEngine::changeDirectionIfNeeded() {
 
       otherStepper->_queue->startQueue();
     }
+    
     fasEnableInterrupts();
   }
 }
@@ -346,7 +349,7 @@ int8_t FastQueueStepper::addQueueEntry(const stepper_command_s &cmd) {
   }
  
   uint32_t delay = 0;
-  if ((cmd.steps < 0 && _queue->currentDirection() > 0) || (cmd.steps > 0 && _queue->currentDirection() < 0)) {
+  if ((cmd.steps < 0 && _queue->directionAfterLastEntry() > 0) || (cmd.steps > 0 && _queue->directionAfterLastEntry() < 0)) {
     // We need to change direction
 
     if (getDirectionPin() == PIN_UNDEFINED) {

@@ -28,7 +28,8 @@ bool IRAM_ATTR fas_rmt_queue_done_fn(rmt_channel_handle_t tx_chan,
                                   const rmt_tx_done_event_data_t *edata,
                                   void *user_ctx) {
   StepperQueue *q = (StepperQueue *)user_ctx;
-  q->_rmtCommandsQueued -= 1;
+  if (q->_rmtCommandsQueued != 0)
+    q->_rmtCommandsQueued -= 1;
   BaseType_t xHigherPriorityTaskWoken = pdFALSE;
   xTimerPendFunctionCallFromISR(fas_rmt_queue_done, q, 0, &xHigherPriorityTaskWoken);
   return xHigherPriorityTaskWoken == pdTRUE;
@@ -311,7 +312,8 @@ bool StepperQueue::feedRmt() {
 
   if (rmt_transmit(channel, _tx_encoder, &rmtCmdStorage[_cmdWriteIdx], sizeof(rmt_queue_command_t), &tx_config) != ESP_OK) {
     fasDisableInterrupts();
-    _rmtCommandsQueued -= 1;
+    if (_rmtCommandsQueued != 0)
+      _rmtCommandsQueued -= 1;
     fasEnableInterrupts();
     return false;
   }

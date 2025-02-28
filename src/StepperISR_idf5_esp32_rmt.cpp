@@ -226,9 +226,11 @@ void StepperQueue::startQueue_rmt() {
 
   fasDisableInterrupts();
 
-  if (!_isRunning) {
+  if (!_rmtHasCommands) {
     _tx_encoder->reset(_tx_encoder);
-    
+  }
+
+  if (!_isRunning) {
     // Clear any STOP commands
     queue_entry entry;
     while (peekQueue(entry) && entry.cmd == QueueCommand::STOP) {
@@ -237,10 +239,9 @@ void StepperQueue::startQueue_rmt() {
   }
 
   // Check direction change request
-  {
-    int8_t directionChange = directionChangePending();
-    if (directionChange != 0 &&
-        directionChange != currentDirection()) {
+  if (!_rmtHasCommands) {
+    if (_dirChangePending != 0 &&
+        _dirChangePending != currentDirection()) {
       fasEnableInterrupts();
       _engine->changeDirectionIfNeeded();
       return;

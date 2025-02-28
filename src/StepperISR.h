@@ -67,7 +67,7 @@ class StepperQueue {
   void resetQueue();
 
   inline int8_t directionChangePending() const {
-    return _dirChangePending;
+    return _rmtHasCommands ? 0 : _dirChangePending;
   }
 
   inline int8_t currentDirection() const {

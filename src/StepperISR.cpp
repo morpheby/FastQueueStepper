@@ -62,7 +62,7 @@ int8_t StepperQueue::directionAfterLastEntry() const {
   fasDisableInterrupts();
 
   int8_t direction = currentDirection();
-  for (uint16_t rp = queueReadIdx; rp < queueWriteIdx; rp = (rp + 1) % QUEUE_LEN) {
+  for (uint16_t rp = queueReadIdx; rp != queueWriteIdx; rp = (rp + 1) % QUEUE_LEN) {
     const queue_entry &entry = queue[rp];
     if (entry.cmd == QueueCommand::TOGGLE_DIR) {
       direction = entry.ticks == QUEUE_ENTRY_DIRECTION_NEGATIVE ? -1 : 1;

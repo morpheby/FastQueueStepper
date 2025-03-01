@@ -289,6 +289,7 @@ bool StepperQueue::feedRmt() {
     if (_rmtCommandsQueued == 0) {
       // No movement happening, so trigger change now directly
       startQueue();
+      return true;
     }
     return false;
   } else if (entry.cmd == QueueCommand::STOP) {
@@ -334,6 +335,7 @@ void StepperQueue::forceStop_rmt() {
   fasDisableInterrupts();
   _channel_enabled = false;
   _isRunning = false;
+  _rmtCommandsQueued = 0;
   queueReadIdx = queueWriteIdx;
   fasEnableInterrupts();
 }

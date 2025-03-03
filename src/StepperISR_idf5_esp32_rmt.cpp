@@ -237,7 +237,7 @@ void StepperQueue::startQueue_rmt() {
     // Clear any STOP commands
     queue_entry entry;
     while (peekQueue(entry) && entry.cmd == QueueCommand::STOP) {
-      readQueue(entry);
+      advanceReadQueue();
     }
   }
 
@@ -275,7 +275,7 @@ bool StepperQueue::feedRmt() {
   };
   
   queue_entry entry;
-  if (!readQueue(entry)) {
+  if (!peekQueue(entry)) {
     // Queue is empty, nothing to start
     return false;
   }
@@ -283,6 +283,7 @@ bool StepperQueue::feedRmt() {
   if (entry.cmd == QueueCommand::TOGGLE_DIR) {
     // Temporarily starve the queue, until direction is changed
     fasDisableInterrupts();
+    advanceReadQueue();
     _dirChangePending = entry.ticks == QUEUE_ENTRY_DIRECTION_NEGATIVE ? -1 : 1;
     // TODO: Probably weird and unobvious choice. Think about it later
     fasEnableInterrupts();
@@ -295,6 +296,7 @@ bool StepperQueue::feedRmt() {
   } else if (entry.cmd == QueueCommand::STOP) {
     // Starve the queue till it is stopped
     fasDisableInterrupts();
+    advanceReadQueue();
     _isRunning = false;
     fasEnableInterrupts();
     return false;
@@ -319,6 +321,8 @@ bool StepperQueue::feedRmt() {
     return false;
   }
   fasDisableInterrupts();
+
+  advanceReadQueue();
 
   currentPosition += ((int32_t)(uint16_t)entry.steps) * currentDirection();
 

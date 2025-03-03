@@ -116,13 +116,12 @@ class StepperQueue {
     return true;
   }
 
-  inline bool readQueue(queue_entry &e) {
+  inline bool advanceReadQueue() {
     fasDisableInterrupts();
     if (isQueueEmpty()) {
       fasEnableInterrupts();
       return false;
     }
-    e = queue[queueReadIdx];
     queueReadIdx = (queueReadIdx + 1) % QUEUE_LEN;
     fasEnableInterrupts();
     return true;

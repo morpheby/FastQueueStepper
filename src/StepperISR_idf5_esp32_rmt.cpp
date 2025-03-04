@@ -94,6 +94,7 @@ static size_t encode_command(rmt_encoder_t *encoder, rmt_channel_handle_t tx_cha
     const rmt_queue_command_t &q = *(rmt_queue_command_t *) primary_data;
     queue_command_encoder->currentQueueEntry = q;
     queue_command_encoder->ticksDone = 0;
+    queue_command_encoder->r = 0;
   }
 
   {
@@ -108,6 +109,7 @@ static size_t encode_command(rmt_encoder_t *encoder, rmt_channel_handle_t tx_cha
   queue_command_encoder->currentQueueEntry.ticks = 0;
   queue_command_encoder->currentQueueEntry.steps = 0;
   queue_command_encoder->ticksDone = 0;
+  queue_command_encoder->r = 0;
 
   *ret_state = RMT_ENCODING_COMPLETE;
 
@@ -128,6 +130,7 @@ static esp_err_t encoder_reset(rmt_encoder_t *encoder) {
   queue_command_encoder->currentQueueEntry.ticks = 0;
   queue_command_encoder->currentQueueEntry.steps = 0;
   queue_command_encoder->ticksDone = 0;
+  queue_command_encoder->r = 0;
 
   return ESP_OK;
 }
@@ -137,6 +140,10 @@ rmt_encoder_handle_t encoder_create() {
   queue_encoder->base.del = encoder_delete;
   queue_encoder->base.reset = encoder_reset;
   queue_encoder->base.encode = encode_command;
+  queue_encoder->ticksDone = 0;
+  queue_encoder->r = 0;
+  queue_encoder->currentQueueEntry.steps = 0;
+  queue_encoder->currentQueueEntry.ticks = 0;
   rmt_copy_encoder_config_t copy_encoder_config = {};
   rmt_new_copy_encoder(&copy_encoder_config, &queue_encoder->copy_encoder);
 
@@ -340,6 +347,7 @@ void StepperQueue::forceStop_rmt() {
   _channel_enabled = false;
   _isRunning = false;
   _rmtCommandsQueued = 0;
+  currentPosition = 0;
   queueReadIdx = queueWriteIdx;
   fasEnableInterrupts();
 }

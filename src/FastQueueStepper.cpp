@@ -313,7 +313,6 @@ void FastQueueStepperEngine::manageSteppers() {
   }
 
   autoEnableDisableIfNeeded();
-  changeDirectionIfNeeded();
 }
 
 //*************************************************************************************************
@@ -528,7 +527,7 @@ void FastQueueStepper::forceStopAndNewPosition(int32_t new_pos) {
   _queue->forceStop();
 
   // We set position here, because we can not know for certain what is the current position...  
-  setPositionAfterCommandsCompleted(new_pos);
+  setCurrentPosition(new_pos);
 }
 
 #if defined(SUPPORT_ESP32_PULSE_COUNTER)
@@ -536,7 +535,7 @@ void FastQueueStepper::forceStop() {
   _queue->forceStop();
 
   // Synchronize PCNT and internal counter
-  setPositionAfterCommandsCompleted(getCurrentPosition());
+  setCurrentPosition(getCurrentPosition());
 }
 #endif
 
@@ -608,6 +607,7 @@ void FastQueueStepper::setPositionAfterCommandsCompleted(int32_t new_pos) {
   _currentPosition = new_pos - offset;
   fasEnableInterrupts();
 }
+
 int8_t FastQueueStepper::performOneStep(bool count_up, bool blocking) {
   int8_t result = addQueueEntry({.ticks = 512, .steps = count_up ? 1 : -1});
   if (result != AQE_OK) return result;
@@ -630,7 +630,7 @@ int8_t FastQueueStepper::backwardStep(bool blocking) {
 }
 
 bool FastQueueStepper::isQueueEmpty() const {
-  return _queue->isQueueEmpty();\
+  return _queue->isQueueEmpty();
 }
 
 bool FastQueueStepper::isQueueFull() const {

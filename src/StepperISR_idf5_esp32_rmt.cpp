@@ -262,18 +262,17 @@ void StepperQueue::startQueue_rmt() {
 
   // Check direction change request
   if (_rmtCommandsQueued <= _rmtDirToggleDelayCommandsQueued) {
-    // Nothing (but direction toggle delays) in queue
-    if (_dirChangePending != 0 &&
-        _dirChangePending != currentDirection()) {
+    if(_dirChangePending != 0 &&
+       _dirChangePending != currentDirection()) {
+      // Nothing (but direction toggle delays) in queue
       fasEnableInterrupts();
       // Initiate direction change (this will recursively call us when done)
       _engine->changeDirectionIfNeeded();
       return;
-    } else {
-      // Direction change completed or wasn't needed
-      _dirChangePending = 0;
-      _rmtDirToggleDelayCommandsQueued = 0;
     }
+    // Direction already changed or wasn't needed
+    _dirChangePending = 0;
+    _rmtDirToggleDelayCommandsQueued = 0;
   }
 
   if (!_channel_enabled) {
@@ -293,7 +292,7 @@ bool StepperQueue::feedRmt() {
     .loop_count = 0,             /*!< Specify the times of transmission in a loop, -1 means transmitting in an infinite loop */
     .flags {                     /*!< Transmit specific config flags */
         .eot_level = 0,          /*!< Set the output level for the "End Of Transmission" */
-        .queue_nonblocking = 1,  /*!< If set, when the transaction queue is full, driver will not block the thread but return directly */
+        .queue_nonblocking = 0,  /*!< If set, when the transaction queue is full, driver will not block the thread but return directly */
     }
   };
   
@@ -310,13 +309,12 @@ bool StepperQueue::feedRmt() {
     advanceReadQueue();
     _dirChangePending = entry.ticks == QUEUE_ENTRY_DIRECTION_NEGATIVE ? -1 : 1;
     // TODO: Probably weird and unobvious choice. Think about it later
+    bool queueReadyForChange = (_rmtCommandsQueued <= _rmtDirToggleDelayCommandsQueued);
     fasEnableInterrupts();
-    if (_rmtCommandsQueued == 0) {
-      // No movement happening, so trigger change now directly
+    if (queueReadyForChange)
+      // Perform immediate direction change
       _engine->changeDirectionIfNeeded();
-      return true;
-    }
-    return false;
+    return true;
   } else if (entry.cmd == QueueCommand::STOP) {
     // Starve the queue till it is stopped
     fasDisableInterrupts();
@@ -334,6 +332,7 @@ bool StepperQueue::feedRmt() {
       // so just wait till it is done. On the contrary, if this is just
       // a delay, we want it to happen, so that the queue keeps running
       // at exact timings.
+      fasEnableInterrupts();
       return false;
     } else {
       // Mark that we have some delays in queue, so that the direction change

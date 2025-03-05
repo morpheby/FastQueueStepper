@@ -27,7 +27,7 @@
 #define NUM_QUEUES (QUEUES_MCPWM_PCNT + QUEUES_RMT)
 #define MAX_STEPPER (NUM_QUEUES)
 #define QUEUE_LEN 128
-#define RMT_TX_QUEUE_DEPTH 96
+#define RMT_TX_QUEUE_DEPTH 16
 
 // Esp32 timing definition
 #define TICKS_PER_S 16000000L

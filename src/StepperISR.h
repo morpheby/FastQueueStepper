@@ -78,6 +78,14 @@ class StepperQueue {
     _currentDirection = dir;
   }
 
+  inline StepperQueueStatusFlags readAndClearStatusFlags() { 
+    fasDisableInterrupts();
+    auto flags = _statusFlags;
+    _statusFlags = StepperQueueStatusFlags::QUEUE_STATUS_NONE;
+    fasEnableInterrupts();
+    return flags;
+  }
+
 #if SUPPORT_UNSAFE_ABS_SPEED_LIMIT_SETTING == 1
   void setAbsoluteSpeedLimit(uint16_t ticks) { max_speed_in_ticks = ticks; }
 #endif
@@ -127,6 +135,8 @@ class StepperQueue {
     return true;
   }
 
+  StepperQueueStatusFlags _statusFlags;
+
 #if defined(SUPPORT_ESP32)
   bool _isRunning;
 #endif
@@ -139,6 +149,7 @@ class StepperQueue {
   static TaskHandle_t _rmtFeederTask;
   rmt_queue_command_t rmtCmdStorage[RMT_TX_QUEUE_DEPTH+1];
   uint32_t _rmtCommandsQueued;
+  uint32_t _rmtDirToggleDelayCommandsQueued;
   uint16_t _cmdWriteIdx;
 
   friend bool IRAM_ATTR fas_rmt_queue_done_fn(rmt_channel_handle_t tx_chan,

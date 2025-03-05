@@ -672,3 +672,7 @@ int8_t FastQueueStepper::directionAfterCommandsCompleted() const {
 uint8_t FastQueueStepper::getStepPin() const {
   return _queue->getStepPin();
 }
+
+StepperQueueStatusFlags FastQueueStepper::readAndClearQueueDebugFlags() {
+  return _queue->readAndClearStatusFlags();
+}

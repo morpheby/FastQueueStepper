@@ -5,6 +5,37 @@
 
 class FastQueueStepper;
 
+enum class StepperQueueStatusFlags {
+  // Debugging flags to see what is happening inside the queue
+
+  QUEUE_STATUS_NONE                     = 0,
+
+  QUEUE_STARVED_FLAG                    = (1 << 0),
+  QUEUE_DIRECTION_TOGGLE_DELAY_TOO_LOW  = (1 << 1),
+  
+#if defined(SUPPORT_ESP32_RMT)
+  QUEUE_RMT_STARVED                     = (1 << 2),
+  QUEUE_RMT_TX_FULL                     = (1 << 3),
+#endif
+};
+
+inline constexpr StepperQueueStatusFlags operator|(const StepperQueueStatusFlags &lhv, const StepperQueueStatusFlags &rhv) {
+    return static_cast<StepperQueueStatusFlags>(static_cast<int>(lhv) | static_cast<int>(rhv));
+}
+
+inline constexpr StepperQueueStatusFlags &operator|=(StepperQueueStatusFlags &lhv, const StepperQueueStatusFlags &rhv) {
+  return reinterpret_cast<StepperQueueStatusFlags&>(reinterpret_cast<int&>(lhv) |= static_cast<int>(rhv));
+}
+
+
+inline constexpr StepperQueueStatusFlags operator&(const StepperQueueStatusFlags &lhv, const StepperQueueStatusFlags &rhv) {
+  return static_cast<StepperQueueStatusFlags>(static_cast<int>(lhv) & static_cast<int>(rhv));
+}
+
+inline constexpr StepperQueueStatusFlags &operator&=(StepperQueueStatusFlags &lhv, const StepperQueueStatusFlags &rhv) {
+  return reinterpret_cast<StepperQueueStatusFlags&>(reinterpret_cast<int&>(lhv) &= static_cast<int>(rhv));
+}
+
 class FastQueueStepperEngine {
  public:
 
@@ -342,6 +373,8 @@ class FastQueueStepper {
   // will last for <min_ticks> ticks. This is again without the
   // currently processed command.
   bool hasTicksInQueue(uint32_t min_ticks) const;
+
+  StepperQueueStatusFlags readAndClearQueueDebugFlags();
 
  private:
   inline void setEnabled(bool enabled) { _enabled = enabled; }

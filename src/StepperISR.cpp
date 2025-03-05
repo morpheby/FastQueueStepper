@@ -83,9 +83,11 @@ void StepperQueue::_initVars() {
   _dirChangePending = 0;
   _currentDirection = 1;
   currentPosition = 0;
+  _statusFlags = StepperQueueStatusFlags::QUEUE_STATUS_NONE;
 #if defined(SUPPORT_ESP32)
   _isRunning = false;
   _rmtCommandsQueued = 0;
+  _rmtDirToggleDelayCommandsQueued = 0;
 #endif
 #if defined(SUPPORT_ESP32_RMT)
   _cmdWriteIdx = 0;

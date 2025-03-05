@@ -309,9 +309,9 @@ bool StepperQueue::feedRmt() {
     advanceReadQueue();
     _dirChangePending = entry.ticks == QUEUE_ENTRY_DIRECTION_NEGATIVE ? -1 : 1;
     // TODO: Probably weird and unobvious choice. Think about it later
-    bool queueReadyForChange = (_rmtCommandsQueued <= _rmtDirToggleDelayCommandsQueued);
+    bool queueNeedsImmediateChange = (_rmtCommandsQueued == 0);
     fasEnableInterrupts();
-    if (queueReadyForChange)
+    if (queueNeedsImmediateChange)
       // Perform immediate direction change
       _engine->changeDirectionIfNeeded();
     return true;
@@ -351,7 +351,8 @@ bool StepperQueue::feedRmt() {
   
   fasEnableInterrupts();
 
-  if (rmt_transmit(channel, _tx_encoder, &rmtCmdStorage[_cmdWriteIdx], sizeof(rmt_queue_command_t), &tx_config) != ESP_OK) {
+  if (_rmtCommandsQueued >= RMT_TX_QUEUE_DEPTH ||
+      rmt_transmit(channel, _tx_encoder, &rmtCmdStorage[_cmdWriteIdx], sizeof(rmt_queue_command_t), &tx_config) != ESP_OK) {
     fasDisableInterrupts();
     _statusFlags |= StepperQueueStatusFlags::QUEUE_RMT_TX_FULL;
     if (_rmtCommandsQueued != 0)

@@ -690,3 +690,7 @@ uint8_t FastQueueStepper::getStepPin() const {
 StepperQueueStatusFlags FastQueueStepper::readAndClearQueueDebugFlags() {
   return _queue->readAndClearStatusFlags();
 }
+
+uint32_t FastQueueStepper::absoluteSpeedLimit() const {
+  return _queue->getMaxSpeedInTicks();
+}

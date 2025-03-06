@@ -299,7 +299,8 @@ class FastQueueStepper {
   // is true while the stepper is running
   bool isRunning() const;
 
-  // FIXME: This is not used at the moment anywhere. Absolute speed is unchecked
+  uint32_t absoluteSpeedLimit() const;
+
   void setAbsoluteSpeedLimit(uint16_t max_speed_in_ticks);
 
   // ### forwardStep() and backwardStep()

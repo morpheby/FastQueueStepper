@@ -36,6 +36,8 @@ inline constexpr StepperQueueStatusFlags &operator&=(StepperQueueStatusFlags &lh
   return reinterpret_cast<StepperQueueStatusFlags&>(reinterpret_cast<int&>(lhv) &= static_cast<int>(rhv));
 }
 
+class StepperQueue;
+
 class FastQueueStepperEngine {
  public:
 
@@ -136,7 +138,6 @@ class FastQueueStepperEngine {
 
   /* This should be only called from ISR or stepper task. So do not call it */
   virtual void manageSteppers();
-
  private:
   void setStepperDirectionPin(FastQueueStepper *stepper, uint8_t dir_pin);
   void setStepperEnablePin(FastQueueStepper *stepper, uint8_t en_pin);
@@ -145,6 +146,10 @@ class FastQueueStepperEngine {
 
   void changeDirectionIfNeeded();
   void autoEnableDisableIfNeeded();
+  
+  bool changeDirectionIfNeeded(StepperQueue *stepperQueue);
+
+  bool changeDirectionIfNeeded(int stepperIdx);
 
   FastQueueStepper* _steppers[MAX_STEPPER];
   uint8_t sharedDirectionPinList[MAX_STEPPER];
@@ -190,8 +195,6 @@ class FastQueueStepperEngine {
 
 #define PIN_UNDEFINED 255
 #define PIN_EXTERNAL_FLAG 128
-
-class StepperQueue;
 
 class FastQueueStepper {
  private:

@@ -67,7 +67,7 @@ class StepperQueue {
   void resetQueue();
 
   inline int8_t directionChangePending() const {
-    return _rmtCommandsQueued > 0 ? 0 : _dirChangePending;
+    return _dirChangePending;
   }
 
   inline int8_t currentDirection() const {
@@ -85,6 +85,8 @@ class StepperQueue {
     fasEnableInterrupts();
     return flags;
   }
+
+  bool directionChangeIsAllowed() const;
 
 #if SUPPORT_UNSAFE_ABS_SPEED_LIMIT_SETTING == 1
   void setAbsoluteSpeedLimit(uint16_t ticks) { max_speed_in_ticks = ticks; }

@@ -84,74 +84,88 @@ bool FastQueueStepperEngine::_isValidStepPin(uint8_t step_pin) {
 }
 
 //*************************************************************************************************
-void FastQueueStepperEngine::changeDirectionIfNeeded() {  
+bool FastQueueStepperEngine::changeDirectionIfNeeded(int stepperIdx) {
+  FastQueueStepper *stepper = _steppers[stepperIdx];
+  if (stepper == NULL) return false;
+
+  if (stepper->getDirectionPin() == PIN_UNDEFINED) return false;
+
+  int8_t currentDirection = stepper->_queue->currentDirection() * (stepper->directionPinHighCountsUp() ? 1 : -1);
+  int8_t wantedDirection = stepper->isQueueRunning()
+    ? stepper->_queue->directionChangePending() * (stepper->directionPinHighCountsUp() ? 1 : -1)
+    : currentDirection;
+
+  if (wantedDirection == 0) return false; // This stepper doesn't need direction change
+
+  bool changeAllowed = true;
+
+  if (!stepper->_queue->directionChangeIsAllowed()) return false;
+
+  // Use circular linked list to agree with other steppers in chain.
+  fasDisableInterrupts(); // Lock any status changes while we investigate the chain
+  for (int otherStepperIdx = sharedDirectionPinList[stepperIdx];
+       otherStepperIdx != stepperIdx;
+       otherStepperIdx = sharedDirectionPinList[otherStepperIdx]) {
+    FastQueueStepper *otherStepper = _steppers[otherStepperIdx];
+    if (otherStepper == NULL) continue;
+    if (!otherStepper->isQueueRunning()) continue; // This stepper doesn't care about direction
+
+    // Check direction
+    int8_t otherWantedDirection = otherStepper->_queue->directionChangePending() * (otherStepper->directionPinHighCountsUp() ? 1 : -1);
+    int8_t otherCurrentDirection = otherStepper->_queue->currentDirection() * (otherStepper->directionPinHighCountsUp() ? 1 : -1);
+    if (wantedDirection == otherCurrentDirection) continue; // This stepper already agrees
+    
+    if (otherStepper->_queue->directionChangeIsAllowed() && wantedDirection == otherWantedDirection) continue; // This stepper will agree after it is updated 
+
+    // This stepper is blocking the change of direction. Skip this stepper
+    changeAllowed = false;
+    break;
+  }
+
+  if (!changeAllowed) return false;
+
+  if (stepper->getDirectionPin() & PIN_EXTERNAL_FLAG) {
+    _externalCallForPin(stepper->getDirectionPin() ^ PIN_EXTERNAL_FLAG, wantedDirection > 0 ? 1 : 0);
+  } else {
+    LL_SET_PIN(stepper->getDirectionPin(), wantedDirection > 0 ? 1 : 0);
+  }
+
+  stepper->_queue->setDirection(wantedDirection * (stepper->directionPinHighCountsUp() ? 1 : -1));
+
+  // Use circular linked list to update other steppers in chain.
+  for (int otherStepperIdx = sharedDirectionPinList[stepperIdx];
+       otherStepperIdx != stepperIdx;
+       otherStepperIdx = sharedDirectionPinList[otherStepperIdx]) {
+    FastQueueStepper *otherStepper = _steppers[otherStepperIdx];
+    if (otherStepper == NULL) continue;
+
+    otherStepper->_queue->setDirection(wantedDirection * (otherStepper->directionPinHighCountsUp() ? 1 : -1));
+
+    if (!otherStepper->isQueueRunning()) continue; // The stepper is not awaiting direction change
+
+    otherStepper->_queue->startQueue();
+  }
+  
+  fasEnableInterrupts();
+
+  return true;
+}
+
+//*************************************************************************************************
+bool FastQueueStepperEngine::changeDirectionIfNeeded(StepperQueue *stepperQueue) {
   for (int stepperIdx = 0; stepperIdx < MAX_STEPPER; ++stepperIdx) {
     FastQueueStepper *stepper = _steppers[stepperIdx];
     if (stepper == NULL) continue;
+    if (stepperQueue != stepper->_queue) continue;
 
-    if (stepper->getDirectionPin() == PIN_UNDEFINED) continue;
+    return changeDirectionIfNeeded(stepperIdx);
+  }
+  return false;
+}
 
-    int8_t currentDirection = stepper->_queue->currentDirection() * (stepper->directionPinHighCountsUp() ? 1 : -1);
-    int8_t wantedDirection = stepper->isQueueRunning()
-      ? stepper->_queue->directionChangePending() * (stepper->directionPinHighCountsUp() ? 1 : -1)
-      : currentDirection;
-
-    if (wantedDirection == 0) continue; // This stepper doesn't need direction change
-
-    bool changeAllowed = true;
-
-    // Use circular linked list to agree with other steppers in chain.
-    fasDisableInterrupts(); // Lock any status changes while we investigate the chain
-    for (int otherStepperIdx = sharedDirectionPinList[stepperIdx];
-         otherStepperIdx != stepperIdx;
-         otherStepperIdx = sharedDirectionPinList[otherStepperIdx]) {
-      FastQueueStepper *otherStepper = _steppers[otherStepperIdx];
-      if (otherStepper == NULL) continue;
-      if (!otherStepper->isQueueRunning()) continue; // This stepper doesn't care about direction
-
-      // Check direction
-      int8_t otherWantedDirection = otherStepper->_queue->directionChangePending() * (otherStepper->directionPinHighCountsUp() ? 1 : -1);
-      int8_t otherCurrentDirection = otherStepper->_queue->currentDirection() * (otherStepper->directionPinHighCountsUp() ? 1 : -1);
-      if (wantedDirection == otherCurrentDirection) continue; // This stepper already agrees
-      if (wantedDirection == otherWantedDirection) continue; // This stepper will agree after it is updated 
-      
-      // This stepper is blocking the change of direction. Skip this stepper
-      changeAllowed = false;
-      break;
-    }
-
-    if (!changeAllowed) continue;
-
-    if (stepper->getDirectionPin() & PIN_EXTERNAL_FLAG) {
-      _externalCallForPin(stepper->getDirectionPin() ^ PIN_EXTERNAL_FLAG, wantedDirection > 0 ? 1 : 0);
-    } else {
-      LL_SET_PIN(stepper->getDirectionPin(), wantedDirection > 0 ? 1 : 0);
-    }
-
-    stepper->_queue->setDirection(wantedDirection * (stepper->directionPinHighCountsUp() ? 1 : -1));
-
-    if (stepper->isQueueRunning()) {
-      // Queue is awaiting direction change, so ping it
-      fasEnableInterrupts();
-      stepper->_queue->startQueue();
-      fasDisableInterrupts();
-    }
-
-    // Use circular linked list to update other steppers in chain.
-    for (int otherStepperIdx = sharedDirectionPinList[stepperIdx];
-         otherStepperIdx != stepperIdx;
-         otherStepperIdx = sharedDirectionPinList[otherStepperIdx]) {
-      FastQueueStepper *otherStepper = _steppers[otherStepperIdx];
-      if (otherStepper == NULL) continue;
-
-      otherStepper->_queue->setDirection(wantedDirection * (otherStepper->directionPinHighCountsUp() ? 1 : -1));
-
-      if (!otherStepper->isQueueRunning()) continue; // The stepper is not awaiting direction change
-
-      otherStepper->_queue->startQueue();
-    }
-    
-    fasEnableInterrupts();
+void FastQueueStepperEngine::changeDirectionIfNeeded() {  
+  for (int stepperIdx = 0; stepperIdx < MAX_STEPPER; ++stepperIdx) {
+    changeDirectionIfNeeded(stepperIdx);
   }
 }
 

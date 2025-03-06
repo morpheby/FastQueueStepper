@@ -3,6 +3,8 @@
 #include "StepperISR.h"
 #if defined(HAVE_ESP32_RMT) && (ESP_IDF_VERSION_MAJOR == 5)
 
+TaskHandle_t StepperQueue::_rmtFeederTask = NULL;
+
 struct queue_command_encoder_t {
   rmt_encoder_t base;
   rmt_queue_command_t currentQueueEntry {
@@ -16,16 +18,9 @@ struct queue_command_encoder_t {
   rmt_encoder_t *copy_encoder;
 };
 
-static void fas_rmt_queue_done(void *pvParameter1, uint32_t ulParameter2) {
-  StepperQueue *q = (StepperQueue *)pvParameter1;
-  // We are at the end of the RMT queue, so we need to try to force feed (may change direction)
-  if (q->isRunning())
-    q->startQueue();
-}
-
 bool IRAM_ATTR fas_rmt_queue_done_fn(rmt_channel_handle_t tx_chan,
-                                  const rmt_tx_done_event_data_t *edata,
-                                  void *user_ctx) {
+                                     const rmt_tx_done_event_data_t *edata,
+                                     void *user_ctx) {
   StepperQueue *q = (StepperQueue *)user_ctx;
   if (q->_rmtCommandsQueued != 0)
     q->_rmtCommandsQueued -= 1;
@@ -37,9 +32,9 @@ bool IRAM_ATTR fas_rmt_queue_done_fn(rmt_channel_handle_t tx_chan,
   }
   BaseType_t xHigherPriorityTaskWoken = pdFALSE;
   
-  // Check if the queue is empty (or in a delay)
-  if (q->_rmtCommandsQueued <= q->_rmtDirToggleDelayCommandsQueued) {
-    xTimerPendFunctionCallFromISR(fas_rmt_queue_done, q, 0, &xHigherPriorityTaskWoken);
+  // Check if the queue is empty (or in a delay) and request additional feed
+  if (q->directionChangeIsAllowed()) {
+    xTaskNotifyFromISR(StepperQueue::_rmtFeederTask, 0, eIncrement, &xHigherPriorityTaskWoken);
   }
 
   return xHigherPriorityTaskWoken == pdTRUE;
@@ -178,8 +173,6 @@ void rmt_feeder_task_fn(void *arg) {
   }
 }
 
-TaskHandle_t StepperQueue::_rmtFeederTask = NULL;
-
 void StepperQueue::notifyRmt() {
   xTaskNotifyGive(_rmtFeederTask);
 }
@@ -260,21 +253,6 @@ void StepperQueue::startQueue_rmt() {
     }
   }
 
-  // Check direction change request
-  if (_rmtCommandsQueued <= _rmtDirToggleDelayCommandsQueued) {
-    if(_dirChangePending != 0 &&
-       _dirChangePending != currentDirection()) {
-      // Nothing (but direction toggle delays) in queue
-      fasEnableInterrupts();
-      // Initiate direction change (this will recursively call us when done)
-      _engine->changeDirectionIfNeeded();
-      return;
-    }
-    // Direction already changed or wasn't needed
-    _dirChangePending = 0;
-    _rmtDirToggleDelayCommandsQueued = 0;
-  }
-
   if (!_channel_enabled) {
     rmt_enable(channel);
     _channel_enabled = true;
@@ -292,7 +270,7 @@ bool StepperQueue::feedRmt() {
     .loop_count = 0,             /*!< Specify the times of transmission in a loop, -1 means transmitting in an infinite loop */
     .flags {                     /*!< Transmit specific config flags */
         .eot_level = 0,          /*!< Set the output level for the "End Of Transmission" */
-        .queue_nonblocking = 0,  /*!< If set, when the transaction queue is full, driver will not block the thread but return directly */
+        .queue_nonblocking = 1,  /*!< If set, when the transaction queue is full, driver will not block the thread but return directly */
     }
   };
   
@@ -311,10 +289,14 @@ bool StepperQueue::feedRmt() {
     // TODO: Probably weird and unobvious choice. Think about it later
     bool queueNeedsImmediateChange = (_rmtCommandsQueued == 0);
     fasEnableInterrupts();
-    if (queueNeedsImmediateChange)
-      // Perform immediate direction change
-      _engine->changeDirectionIfNeeded();
-    return true;
+
+    // Perform immediate direction change
+    if (!queueNeedsImmediateChange || !_engine->changeDirectionIfNeeded(this))
+      // Direction change did not succeed, so keep waiting
+      return false;
+    else
+      // We will try again in next loop
+      return true;
   } else if (entry.cmd == QueueCommand::STOP) {
     // Starve the queue till it is stopped
     fasDisableInterrupts();
@@ -326,12 +308,25 @@ bool StepperQueue::feedRmt() {
 
   fasDisableInterrupts();
 
+  // Check direction change request
   if (_dirChangePending) {
-    if (entry.steps != 0) {
+    if (_dirChangePending == currentDirection()) {
+      // Direction already changed or wasn't needed
+      _dirChangePending = 0;
+      _rmtDirToggleDelayCommandsQueued = 0;
+    } else if (directionChangeIsAllowed()) {
+      // Nothing (but direction toggle delays) in queue, we can toggle direction now
+      fasEnableInterrupts();
+      // Initiate direction change
+      if (!_engine->changeDirectionIfNeeded(this))
+        // Direction change did not succeed, so we can not start
+        return false;
+      fasDisableInterrupts();
+      _dirChangePending = 0;
+      _rmtDirToggleDelayCommandsQueued = 0;
+    } else if (entry.steps != 0) {
       // We can not do steps until the direction change is completed,
-      // so just wait till it is done. On the contrary, if this is just
-      // a delay, we want it to happen, so that the queue keeps running
-      // at exact timings.
+      // so just wait till it is done.
       fasEnableInterrupts();
       return false;
     } else {
@@ -377,6 +372,13 @@ bool StepperQueue::feedRmt() {
   fasEnableInterrupts();
 
   return true;
+}
+
+bool StepperQueue::directionChangeIsAllowed() const {
+  fasDisableInterrupts();
+  bool allowed = !_isRunning || (_rmtCommandsQueued <= _rmtDirToggleDelayCommandsQueued);
+  fasEnableInterrupts();
+  return allowed;
 }
 
 void StepperQueue::forceStop_rmt() {
